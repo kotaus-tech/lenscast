@@ -32,6 +32,8 @@ TrustStore.Save(new("192.0.2.2", "CERT2", "token2"));
 Check(TrustStore.ForFingerprint("CERT1")?.Token == "token1", "Два сопряжённых телефона сохраняются независимо");
 TrustStore.Save(TrustStore.ForFingerprint("CERT1")! with { Address="192.0.2.3" });
 Check(TrustStore.Load("192.0.2.1") is null && TrustStore.Load("192.0.2.3")?.Token == "token1", "Смена адреса не меняет доверие сертификату");
+TrustStore.Forget("192.0.2.3");
+Check(TrustStore.Load("192.0.2.3") is null && TrustStore.Load("192.0.2.2")?.Token=="token2", "Удаление одного сопряжения не затрагивает второе");
 TrustStore.Forget();
 
 // Real TCP sessions, fragmented messages, heartbeat and reconnect, no Android hardware.

@@ -33,7 +33,7 @@ class MainActivity : ComponentActivity() {
   setContent {
    MaterialTheme(colorScheme = darkColorScheme(primary=Color(0xFF8F7CF0), background=Color(0xFF0E0E11), surface=Color(0xFF17171C), onSurface=Color(0xFFECECF1))) {
     var settings by remember { mutableStateOf(false) }
-    Surface(Modifier.fillMaxSize()) {
+    Surface(Modifier.fillMaxSize(), color=MaterialTheme.colorScheme.background) {
      Column(Modifier.statusBarsPadding().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement=Arrangement.spacedBy(16.dp)) {
       Row(Modifier.fillMaxWidth(), horizontalArrangement=Arrangement.SpaceBetween) {
        Text("Lenscast", fontSize=30.sp)

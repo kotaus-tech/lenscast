@@ -28,9 +28,6 @@ jobs:
         run: |
           gradle --no-daemon :app:assembleRelease :app:lintRelease :app:testReleaseUnitTest
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose app/build/outputs/apk/release/app-release.apk
-      - name: Манифест зависимостей Android
-        if: always()
-        run: python3 .github/scripts/ci_manifests.py
       - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
           name: Lenscast-Android
@@ -55,9 +52,9 @@ jobs:
           $p = Start-Process artifacts/windows/Lenscast.exe -ArgumentList '--ci-smoke' -RedirectStandardError artifacts/smoke-stderr.txt -RedirectStandardOutput artifacts/smoke-stdout.txt -PassThru
           if (-not $p.WaitForExit(30000)) { $p.Kill(); throw 'Приложение не завершило проверку запуска' }
           if ($p.ExitCode -ne 0) { throw 'Ошибка загрузки интерфейса WPF' }
-      - name: Манифесты и журнал запуска Windows
-        if: always()
-        run: python .github/scripts/ci_manifests.py
+      - name: Журнал при ошибке запуска Windows
+        if: failure()
+        run: python .github/scripts/ci_failure_logs.py
       - name: Компонент USB
         shell: pwsh
         run: |

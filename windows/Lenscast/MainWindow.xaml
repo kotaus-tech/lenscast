@@ -9,7 +9,7 @@
    <WrapPanel><Button Content="Найти телефоны" Click="Discover_Click"/><Button Content="Проверить USB" Click="Usb_Click"/></WrapPanel>
    <ListBox x:Name="Devices" MinHeight="90" DisplayMemberPath="Label" SelectionChanged="Devices_SelectionChanged"/>
    <TextBlock Text="Если телефон не найден, введите его адрес вручную" Margin="0,16,0,0"/>
-   <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="140"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBox x:Name="Address" ToolTip="IP-адрес телефона"/><TextBox x:Name="Code" Grid.Column="1" MaxLength="6" ToolTip="Код с телефона"/><Button Grid.Column="2" Content="Подключиться" Click="Connect_Click"/></Grid>
+   <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="140"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBox x:Name="Address" ToolTip="IP-адрес телефона"/><TextBox x:Name="Code" Grid.Column="1" MaxLength="6" ToolTip="Код с телефона"/><Button Grid.Column="2" Background="#8F7CF0" Foreground="#0E0E11" Content="Подключиться" Click="Connect_Click"/></Grid>
    <TextBlock Text="Адрес телефона · код первого подключения" Foreground="#9A9AA8"/></StackPanel></Border>
    <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="Защищённое подключение" FontSize="20"/><TextBlock Text="По Wi-Fi код нужен только один раз. По USB подтвердите отладку на телефоне. Одновременно подключается один телефон."/><Button Content="Отключиться" Click="Disconnect_Click" HorizontalAlignment="Left"/></StackPanel></Border>
   </StackPanel></ScrollViewer></TabItem>

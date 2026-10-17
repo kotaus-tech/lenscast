@@ -6,20 +6,21 @@ using System.Net.Sockets;
 using System.Text;
 namespace Lenscast;
 internal record Phone(string Name, string Address, bool Usb) { public string Label => $"{Name} · {(Usb ? "USB" : "Wi-Fi")} · готов к подключению"; }
+internal sealed class UsbDiscoveryException(string message) : Exception(message) { }
 internal static class Discovery {
  internal static async Task<List<Phone>> Usb() {
   var adb=Path.Combine(AppContext.BaseDirectory,"adb","adb.exe");
   if(!File.Exists(adb)) throw new FileNotFoundException("Не найден компонент USB. Переустановите Lenscast.");
   var output=await Run(adb,"devices");
   var devices=output.Split('\n').Select(l=>l.Trim().Split('\t')).Where(p=>p.Length==2 && p[1]=="device").ToList();
-  if(devices.Count>1) throw new InvalidOperationException("Подключите только один телефон по USB.");
+  if(devices.Count>1) throw new UsbDiscoveryException("Подключите только один телефон по USB.");
   var result=new List<Phone>();
   foreach(var d in devices) {
    await Run(adb,"-s",d[0],"forward","tcp:27185","tcp:27185");
    var name=(await Run(adb,"-s",d[0],"shell","getprop","ro.product.model")).Trim();
    result.Add(new(name,"127.0.0.1",true));
   }
-  if(result.Count==0 && output.Contains("unauthorized")) throw new InvalidOperationException("Подтвердите отладку по USB на телефоне и повторите поиск.");
+  if(result.Count==0 && output.Contains("unauthorized")) throw new UsbDiscoveryException("Подтвердите отладку по USB на телефоне и повторите поиск.");
   return result;
  }
  private static async Task<string> Run(string file,params string[] args) {

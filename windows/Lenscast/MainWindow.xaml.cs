@@ -8,6 +8,7 @@ namespace Lenscast;
 public partial class MainWindow : Wpf.Ui.Controls.FluentWindow {
  private readonly Connection connection=new();
  private bool usb;
+ private string? sessionAddress;
  private double? roundtrip;
  private readonly List<Phone> phones = [];
  private readonly DispatcherTimer discoveryTimer = new() { Interval = TimeSpan.FromSeconds(15) };
@@ -52,7 +53,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow {
   }
   catch(Exception ex) {
    Log.Write("Не удалось найти телефон",ex);
-   if (!silent) Status.Text=useUsb?"USB недоступен. Проверьте кабель и подтвердите отладку на телефоне.":"Поиск в сети недоступен. Введите адрес телефона вручную.";
+   if (!silent) Status.Text=ex is UsbDiscoveryException ? ex.Message : useUsb?"USB недоступен. Проверьте кабель и подтвердите отладку на телефоне.":"Поиск в сети недоступен. Введите адрес телефона вручную.";
   }
  }
  private void Devices_SelectionChanged(object sender,SelectionChangedEventArgs e) { if(Devices.SelectedItem is Phone p) { Address.Text=p.Address; usb=p.Usb; } }
@@ -60,11 +61,18 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow {
   if(!IPAddress.TryParse(Address.Text.Trim(),out var ip) || ip.AddressFamily!=System.Net.Sockets.AddressFamily.InterNetwork) { Status.Text="Введите IPv4-адрес телефона из настроек Wi-Fi."; return; }
   if(IPAddress.IsLoopback(ip) && !usb) { Status.Text="Для USB нажмите «Проверить USB» и выберите телефон."; return; }
   if (!string.IsNullOrEmpty(Code.Text) && (Code.Text.Length!=6 || !Code.Text.All(char.IsAsciiDigit))) { Status.Text="Введите шесть цифр с экрана телефона."; return; }
-  roundtrip=null; connection.Start(ip.ToString(),Code.Text.Trim(),usb && IPAddress.IsLoopback(ip)); Code.Clear();
+  roundtrip=null; sessionAddress=ip.ToString(); connection.Start(ip.ToString(),Code.Text.Trim(),usb && IPAddress.IsLoopback(ip)); Code.Clear();
  }
  private void Disconnect_Click(object sender,RoutedEventArgs e) { connection.Dispose(); Status.Text="Отключено"; }
  private async void Stop_Click(object sender,RoutedEventArgs e) { try { await connection.Send(new {type="stop"}); connection.Dispose(); Status.Text="Связь остановлена на телефоне"; } catch(Exception ex) { Log.Write("Остановка не доставлена",ex); Status.Text="Не удалось остановить телефон. Нажмите «Стоп» на телефоне."; } }
- private async void Forget_Click(object sender,RoutedEventArgs e) { try { await connection.Send(new {type="forget"}); } catch(Exception ex) { Log.Write("Сброс доверия не доставлен",ex); } connection.Dispose(); TrustStore.Forget(); Status.Text="Телефон забыт. При следующем подключении введите код."; }
+ private async void Forget_Click(object sender,RoutedEventArgs e) {
+  var address=sessionAddress ?? Address.Text.Trim();
+  if(!IPAddress.TryParse(address,out var ip)) { Status.Text="Выберите телефон, который нужно забыть."; return; }
+  if(IPAddress.IsLoopback(ip)) { Status.Text="Для удаления сопряжения подключите телефон по Wi-Fi."; return; }
+  try { await connection.Send(new {type="forget"}); } catch(Exception ex) { Log.Write("Сброс доверия не доставлен",ex); }
+  connection.Dispose(); TrustStore.Forget(address); sessionAddress=null;
+  Status.Text="Телефон забыт. При следующем подключении введите код.";
+ }
  private void Log_Click(object sender,RoutedEventArgs e) {
   var dialog=new SaveFileDialog {FileName="Lenscast-журнал.txt",Filter="Текстовый журнал (*.txt)|*.txt"};
   if(dialog.ShowDialog()!=true) return;

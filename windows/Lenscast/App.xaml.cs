@@ -9,6 +9,7 @@ public partial class App : Application
  protected override void OnStartup(StartupEventArgs e) {
   DispatcherUnhandledException += (_, args) => { Log.Write("Необработанная ошибка", args.Exception); if(IsSmokeTest) { args.Handled=true; Shutdown(1); return; } MessageBox.Show("Не удалось выполнить действие. Сохраните журнал в настройках и перезапустите Lenscast.", "Lenscast"); args.Handled = true; };
   base.OnStartup(e);
+  Wpf.Ui.Appearance.ApplicationAccentColorManager.Apply(System.Windows.Media.Color.FromRgb(143,124,240), Wpf.Ui.Appearance.ApplicationTheme.Dark);
   if (IsSmokeTest) {
    var timer=new System.Windows.Threading.DispatcherTimer { Interval=TimeSpan.FromSeconds(3) };
    timer.Tick += (_,_)=>{

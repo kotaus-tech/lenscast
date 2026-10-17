@@ -23,8 +23,7 @@ Android SDK и .NET SDK в Actions. Загруженные исходники н
 
 Среда агента — Linux без Java и .NET. Локальная сборка невозможна; единственный
 источник утверждения «собрано» — успешные jobs Actions, не наличие исходников.
-SDK Android пока зафиксирован на 36; проверка более нового стабильного SDK и
-соответствующее обновление нужны до объявления блока А завершённым.
+SDK Android зафиксирован на 36; основание выбора проверено повторно ниже.
 
 ## Повторный аудит 18 октября
 
@@ -48,3 +47,6 @@ SDK Android пока зафиксирован на 36; проверка боле
   https://github.com/lepoco/wpfui/blob/4.3.0/src/Wpf.Ui/Controls/FluentWindow/FluentWindow.cs
   (`OnBackdropTypeChanged`, проверка `!ExtendsContentIntoTitleBar`). ui:TitleBar
   и ExtendsContentIntoTitleBar взяты из Demo.Simple этой же версии.
+
+- Фиолетовый акцент Windows задаётся через ApplicationAccentColorManager.Apply
+  (Color, ApplicationTheme), сигнатура проверена в исходнике версии 4.3.0.

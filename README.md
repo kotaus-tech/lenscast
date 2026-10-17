@@ -4,8 +4,11 @@
 
 ## Текущее состояние
 
-**Блок А в разработке, не готовый продукт.** Реализуется связь: оболочки,
-сопряжение TLS, USB/adb, DNS-SD, переподключение и телеметрия. Передачи изображения,
+**Связь блока A подготовлена к аппаратной проверке; это ещё не готовый Lenscast.**
+Реализованы оболочки, сопряжение TLS, USB/adb, DNS-SD, переподключение и телеметрия.
+Подтверждены CI сборка APK, lint/JVM-тесты, сборка и запуск WPF, TCP/DPAPI/DNS-тесты,
+создание, тихая установка, запуск установленного приложения и удаление Setup.exe.
+Связь именно Android ↔ Windows должна быть проверена на реальных устройствах. Передачи изображения,
 жестов, управления Camera2 и виртуальной камеры пока нет. Соответствующие действия
 в интерфейсе недоступны. Показатели видеозадержки не выдумываются.
 
@@ -32,14 +35,15 @@ Android: JDK 17, Gradle 8.13, Android SDK 36, Build Tools 36.0.0.
 
 ```sh
 cd android
-gradle :app:assembleRelease :app:lintRelease
+gradle :app:assembleRelease :app:lintRelease :app:testReleaseUnitTest
 ```
 
-Windows: Windows 11 / Windows Server 2022, .NET SDK 8.0.415, Inno Setup 6.
+Windows: Windows 11 / Windows Server 2022, .NET SDK 8.0.415, Inno Setup 6.4.3.
 
 ```powershell
-dotnet publish windows/Lenscast/Lenscast.csproj -c Release -o artifacts/windows
-dotnet run --project tests/Lenscast.Tests -c Release
+dotnet restore tests/Lenscast.Tests/Lenscast.Tests.csproj --locked-mode
+dotnet publish windows/Lenscast/Lenscast.csproj --no-restore -c Release -o artifacts/windows
+dotnet run --no-restore --project tests/Lenscast.Tests -c Release
 # Положить platform-tools 36.0.2 (adb.exe, две DLL, NOTICE.txt)
 # в artifacts/windows/adb, как в workflow.
 & "${env:ProgramFiles(x86)}/Inno Setup 6/ISCC.exe" installer/Lenscast.iss
@@ -74,3 +78,16 @@ dotnet run --project tests/Lenscast.Tests -c Release
 защищённое доверие в `%LOCALAPPDATA%\Lenscast`; токены/коды не журналируются.
 Удаление Windows-приложения убирает эту папку. На данном этапе регистрации COM
 нет; она появится вместе с виртуальной камерой в отдельном блоке Г.
+
+## Воспроизводимость и границы автоматических проверок
+
+Версия .NET SDK закреплена в `global.json`, версии Actions — SHA, Inno Setup
+6.4.3 проверяется SHA-256. NuGet и Gradle используют сохранённые lockfiles.
+При намеренном изменении зависимостей lockfiles нужно обновлять отдельно;
+обычный CI не пересоздаёт их. Android Build Tools — 36.0.0, platform-tools — 36.0.2.
+Образы hosted runners могут обновляться: побитово одинаковый Setup.exe не обещается.
+
+Сетевые тесты C# используют локальный сервер-имитатор: это проверка кадрирования,
+heartbeat и переподключения, а не доказательство совместимости с MIUI/ColorOS.
+JVM-тесты проверяют чтение частичных кадров и тайм-ауты; Camera2/MediaProjection
+пока отсутствуют. Ни видеозадержка, ни стабильность на устройствах не измерены.

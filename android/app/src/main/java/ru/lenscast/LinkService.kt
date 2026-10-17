@@ -25,6 +25,7 @@ class LinkService : Service() {
  private val occupied = AtomicBoolean(false)
  private val lifecycleLock = Any()
  private var failure: String? = null
+ private var notification: Notification.Builder? = null
  private val listeners = CopyOnWriteArrayList<ServerSocket>()
  private val clients = CopyOnWriteArrayList<Socket>()
  private var nsd: NsdManager? = null
@@ -42,7 +43,9 @@ class LinkService : Service() {
   nm.createNotificationChannel(NotificationChannel("link", "Подключение к ПК", NotificationManager.IMPORTANCE_LOW))
   val stop = PendingIntent.getService(this, 1, Intent(this, LinkService::class.java).setAction("stop"), PendingIntent.FLAG_IMMUTABLE)
   val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
-  startForeground(1, Notification.Builder(this, "link").setSmallIcon(android.R.drawable.stat_sys_upload).setContentTitle("Lenscast · связь с ПК").setContentText("Ожидание подключения").setContentIntent(open).setOngoing(true).addAction(Notification.Action.Builder(null, "Стоп", stop).build()).build())
+  val builder = Notification.Builder(this, "link").setSmallIcon(android.R.drawable.stat_sys_upload).setContentTitle("Lenscast · связь с ПК").setContentText("Ожидание подключения").setContentIntent(open).setOngoing(true).addAction(Notification.Action.Builder(null, "Стоп", stop).build())
+  notification = builder
+  startForeground(1, builder.build())
   State.running.value = true
   newCode()
   pool.execute {
@@ -59,7 +62,7 @@ class LinkService : Service() {
       try { Thread.sleep(1000) } catch (_: InterruptedException) { break }
      }
     }
-    State.status.value = "Ожидание ПК · связь запущена"
+    if (alive.get()) updateStatus("Ожидание ПК · связь запущена")
     State.log(this, "Сервер связи запущен")
    } catch (e: Exception) { fail("Не удалось открыть связь. Нажмите «Старт» ещё раз.", e); stopSelf() }
   }
@@ -116,7 +119,7 @@ class LinkService : Service() {
     check(prefs.edit().putString("tokenHash", hash(token)).commit()) { "Не удалось сохранить доверие" }; reply.put("token", token); newCode()
    }
    send(output, reply)
-   State.status.value = if (usb) "ПК подключён · USB" else "ПК подключён · Wi-Fi"
+   updateStatus(if (usb) "ПК подключён · USB" else "ПК подключён · Wi-Fi")
    State.log(this, State.status.value)
    var nextTelemetry = 0L
    var lastCommand = SystemClock.elapsedRealtime()
@@ -136,7 +139,7 @@ class LinkService : Service() {
     }
    }
   } catch (e: Exception) { if (alive.get()) State.log(this, "Соединение завершено", e) }
-  finally { clients.remove(s); runCatching { s.close() }; if (owns) { occupied.set(false); if (alive.get()) State.status.value = "Связь прервана · ожидание ПК" } }
+  finally { clients.remove(s); runCatching { s.close() }; if (owns) { occupied.set(false); if (alive.get()) updateStatus("Связь прервана · ожидание ПК") } }
  }
  @Synchronized private fun authenticate(h: JSONObject, out: DataOutputStream): Boolean {
   val now = SystemClock.elapsedRealtime()
@@ -176,6 +179,12 @@ class LinkService : Service() {
   }
   registration = callback
   nsd?.registerService(NsdServiceInfo().apply { serviceName = "Lenscast ${Build.MODEL}"; serviceType = "_lenscast._tcp."; port = 27183 }, NsdManager.PROTOCOL_DNS_SD, callback)
+ }
+ private fun updateStatus(text: String) {
+  State.status.value = text
+  if (alive.get()) notification?.let { builder ->
+   runCatching { getSystemService(NotificationManager::class.java).notify(1, builder.setContentText(text).build()) }
+  }
  }
  private fun fail(message: String, e: Exception) { failure = message; State.status.value = message; State.log(this, message, e) }
  override fun onDestroy() {
