@@ -26,7 +26,7 @@ jobs:
       - name: Сборка и проверка APK
         working-directory: android
         run: |
-          gradle --no-daemon --write-locks :app:assembleRelease :app:lintRelease :app:testReleaseUnitTest
+          gradle --no-daemon :app:assembleRelease :app:lintRelease :app:testReleaseUnitTest
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose app/build/outputs/apk/release/app-release.apk
       - name: Манифест зависимостей Android
         if: always()
@@ -43,9 +43,12 @@ jobs:
         with:
           dotnet-version: '8.0.415'
       - name: Сборка Windows
-        run: dotnet publish windows/Lenscast/Lenscast.csproj -c Release -o artifacts/windows
+        run: |
+          dotnet restore tests/Lenscast.Tests/Lenscast.Tests.csproj --locked-mode
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet publish windows/Lenscast/Lenscast.csproj --no-restore -c Release -o artifacts/windows
       - name: Автоматические проверки протокола
-        run: dotnet run --project tests/Lenscast.Tests -c Release
+        run: dotnet run --no-restore --project tests/Lenscast.Tests -c Release
       - name: Проверка запуска интерфейса WPF
         shell: pwsh
         run: |

@@ -5,6 +5,8 @@ not available to the development environment. Never export credentials or prefs.
 """
 import base64
 import os
+import sys
+sys.stdout.reconfigure(encoding="utf-8")
 from pathlib import Path
 
 files = [

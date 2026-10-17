@@ -1,5 +1,7 @@
-<ui:FluentWindow x:Class="Lenscast.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml" Title="Lenscast" Width="1120" Height="800" MinWidth="760" MinHeight="580" Background="#0E0E11" Foreground="#ECECF1" WindowBackdropType="Mica" WindowStartupLocation="CenterScreen" FontFamily="Segoe UI Variable">
- <Grid Margin="24"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+<ui:FluentWindow x:Class="Lenscast.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml" Title="Lenscast" Width="1120" Height="800" MinWidth="760" MinHeight="580" Background="#0E0E11" Foreground="#ECECF1" ExtendsContentIntoTitleBar="True" WindowBackdropType="Mica" WindowStartupLocation="CenterScreen" FontFamily="Segoe UI Variable">
+ <Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+ <ui:TitleBar Title="Lenscast" Grid.Row="0" Height="40"/>
+ <Grid Grid.Row="1" Margin="24"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
  <DockPanel Margin="0,0,0,20"><TextBlock Text="Lenscast" FontSize="30"/><TextBlock Text="Телефон рядом. Картинка — перед вами." Foreground="#9A9AA8" HorizontalAlignment="Right" VerticalAlignment="Center"/></DockPanel>
  <TabControl Grid.Row="1" Background="Transparent">
   <TabItem Header="Подключение"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="0,20,8,0">
@@ -27,5 +29,6 @@
   </StackPanel></ScrollViewer></TabItem>
  </TabControl>
  <Border Grid.Row="2" Padding="16" Background="#1F1F26" CornerRadius="12" Margin="0,16,0,0"><TextBlock x:Name="Status" Text="Готов к подключению" Margin="0"/></Border>
+ </Grid>
  </Grid>
 </ui:FluentWindow>

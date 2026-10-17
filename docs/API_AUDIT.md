@@ -43,3 +43,8 @@ SDK Android пока зафиксирован на 36; проверка боле
 - Android-приём намеренно **не использует available()**: это не индикатор
   наличия зашифрованных данных. Idle timeout допустим до первого байта заголовка;
   после первого байта любой тайм-аут закрывает сеанс. Добавлены JVM unit-тесты.
+
+- Причина ошибки Mica подтверждена **исходником версии пакета 4.3.0**:
+  https://github.com/lepoco/wpfui/blob/4.3.0/src/Wpf.Ui/Controls/FluentWindow/FluentWindow.cs
+  (`OnBackdropTypeChanged`, проверка `!ExtendsContentIntoTitleBar`). ui:TitleBar
+  и ExtendsContentIntoTitleBar взяты из Demo.Simple этой же версии.

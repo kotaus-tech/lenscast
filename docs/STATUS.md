@@ -63,3 +63,13 @@ TCP/DPAPI/DNS/clock-тесты прошли. Новый smoke-тест выяв�
 исправления базовые стили сделаны явными (DefaultButtonStyle/DefaultTextBoxStyle,
 имена сверены с ресурсами WPF-UI 4.3.0), добавлен сбор журнала ранней инициализации.
 Повторный CI должен либо подтвердить исправление, либо дать точную причину.
+
+Причина WPF установлена по официальному исходнику WPF-UI 4.3.0:
+`Controls/FluentWindow/FluentWindow.cs`, OnBackdropTypeChanged, строка 244 —
+эффект Mica выбрасывает InvalidOperationException, если
+ExtendsContentIntoTitleBar=false. Во втором цикле исправления включено это свойство
+и добавлен ui:TitleBar по официальному примеру. Smoke-тест не отключается.
+Попутно исправлена UTF-8-кодировка экспорта журналов на Windows.
+Полные lockfiles зависимостей Android/NuGet получены из предыдущего CI, добавлены
+в репозиторий; NuGet проверяется --locked-mode. global.json фиксирует именно SDK
+8.0.415, а не только установку SDK рядом с более новым предустановленным SDK runner.
