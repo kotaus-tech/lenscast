@@ -25,6 +25,8 @@ internal static class Discovery {
  }
  private static async Task<string> Run(string file,params string[] args) {
   var info=new ProcessStartInfo(file) { UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true };
+  // Keep Lenscast's daemon separate from the default adb server of other tools.
+  info.ArgumentList.Add("-P"); info.ArgumentList.Add("5038");
   foreach(var arg in args) info.ArgumentList.Add(arg);
   using var p=Process.Start(info)!;
   using var ct=new CancellationTokenSource(TimeSpan.FromSeconds(15));

@@ -26,3 +26,18 @@ Name: "{group}\Lenscast"; Filename: "{app}\Lenscast.exe"
 Filename: "{app}\Lenscast.exe"; Description: "Запустить Lenscast"; Flags: nowait postinstall skipifsilent runasoriginaluser
 [UninstallDelete]
 Type: filesandordirs; Name: "{localappdata}\Lenscast"
+
+[UninstallRun]
+Filename: "{app}\adb\adb.exe"; Parameters: "-P 5038 kill-server"; Flags: runhidden waituntilterminated skipifdoesntexist; RunOnceId: "StopLenscastUsb"
+[Code]
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  ResultCode: Integer;
+  AdbPath: String;
+begin
+  Result := '';
+  AdbPath := ExpandConstant('{app}\adb\adb.exe');
+  if FileExists(AdbPath) then
+    if not Exec(AdbPath, '-P 5038 kill-server', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+      Log('Не удалось остановить компонент USB перед обновлением.');
+end;

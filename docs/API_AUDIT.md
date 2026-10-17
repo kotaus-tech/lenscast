@@ -50,3 +50,10 @@ SDK Android зафиксирован на 36; основание выбора п
 
 - Фиолетовый акцент Windows задаётся через ApplicationAccentColorManager.Apply
   (Color, ApplicationTheme), сигнатура проверена в исходнике версии 4.3.0.
+
+- Изолированный сервер adb: флаги `-P` (порт сервера) и `kill-server` проверены
+  в официальном AOSP `platform_system_core/adb/commandline.cpp`, ref android-8.1.0_r1.
+  Lenscast использует 5038, не останавливая общий adb на 5037. PrepareToInstall/Exec
+  сверены с официальной справкой Inno Setup `topic_scriptevents.htm` и
+  `topic_isxfunc_exec.htm`. Остановка собственного adb до замены/удаления файлов
+  проверяется установочным smoke-тестом.

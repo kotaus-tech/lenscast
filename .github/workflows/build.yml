@@ -84,8 +84,10 @@ jobs:
           $p = Start-Process "$dir/Lenscast.exe" -ArgumentList '--ci-smoke' -PassThru
           if (-not $p.WaitForExit(30000)) { $p.Kill(); throw 'Установленное приложение не отвечает' }
           if ($p.ExitCode -ne 0) { throw 'Установленное приложение не запускается' }
+          & "$dir/adb/adb.exe" -P 5038 devices
+          if ($LASTEXITCODE -ne 0) { throw 'Компонент USB не запускается' }
           $p = Start-Process "$dir/unins000.exe" -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Wait -PassThru
-          if ($p.ExitCode -ne 0 -or (Test-Path "$dir/Lenscast.exe")) { throw 'Проверка удаления не пройдена' }
+          if ($p.ExitCode -ne 0 -or (Test-Path "$dir/Lenscast.exe") -or (Test-Path "$dir/adb/adb.exe")) { throw 'Проверка удаления не пройдена' }
       - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
           name: Lenscast-Windows
