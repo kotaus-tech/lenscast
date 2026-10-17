@@ -23,6 +23,8 @@ class LinkService : Service() {
  private val pool = Executors.newCachedThreadPool()
  private val alive = AtomicBoolean(false)
  private val occupied = AtomicBoolean(false)
+ private val lifecycleLock = Any()
+ private var failure: String? = null
  private val listeners = CopyOnWriteArrayList<ServerSocket>()
  private val clients = CopyOnWriteArrayList<Socket>()
  private var nsd: NsdManager? = null
@@ -46,17 +48,24 @@ class LinkService : Service() {
   pool.execute {
    try {
     val context = tls()
+    if (!alive.get()) return@execute
     // TLS in LAN. Plain TCP is bound ONLY to loopback, reachable through authorized adb.
     listen(context.serverSocketFactory.createServerSocket(27183), false)
     listen(ServerSocket(27185, 4, InetAddress.getByName("127.0.0.1")), true)
-    advertise()
+    synchronized(lifecycleLock) { if (alive.get()) advertise() }
+    pool.execute {
+     while (alive.get()) {
+      synchronized(this) { if (SystemClock.elapsedRealtime() > codeExpires) newCode() }
+      try { Thread.sleep(1000) } catch (_: InterruptedException) { break }
+     }
+    }
     State.status.value = "Ожидание ПК · связь запущена"
     State.log(this, "Сервер связи запущен")
    } catch (e: Exception) { fail("Не удалось открыть связь. Нажмите «Старт» ещё раз.", e); stopSelf() }
   }
   return START_NOT_STICKY
  }
- private fun newCode() { State.code.value = "%06d".format(Locale.ROOT, random.nextInt(1_000_000)); codeExpires = SystemClock.elapsedRealtime() + 180_000 }
+ @Synchronized private fun newCode() { State.code.value = "%06d".format(Locale.ROOT, random.nextInt(1_000_000)); codeExpires = SystemClock.elapsedRealtime() + 180_000 }
  private fun tls(): SSLContext {
   val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
   if (!ks.containsAlias("lenscast")) {
@@ -73,25 +82,30 @@ class LinkService : Service() {
   return SSLContext.getInstance("TLSv1.2").apply { init(km.keyManagers, null, random) }
  }
  private fun listen(server: ServerSocket, usb: Boolean) {
-  listeners.add(server)
+  synchronized(lifecycleLock) {
+   if (!alive.get()) { server.close(); return }
+   listeners.add(server)
+  }
   pool.execute {
    while (alive.get()) try {
     val s = server.accept(); s.tcpNoDelay = true; s.soTimeout = 15_000
-    clients.add(s)
-    pool.execute { handle(s, usb) }
+    synchronized(lifecycleLock) {
+     if (!alive.get() || clients.size >= 8) { s.close() } else {
+      clients.add(s)
+      pool.execute { handle(s, usb) }
+     }
+    }
    } catch (e: Exception) { if (alive.get()) State.log(this, "Ошибка входящего соединения", e) }
   }
  }
- private fun read(input: DataInputStream): JSONObject {
-  val n = input.readInt(); require(n in 2..65536) { "Недопустимый размер сообщения" }
-  return JSONObject(String(ByteArray(n).also { input.readFully(it) }, Charsets.UTF_8))
- }
- private fun send(out: DataOutputStream, obj: JSONObject) { val b = obj.toString().toByteArray(Charsets.UTF_8); out.writeInt(b.size); out.write(b); out.flush() }
+ private fun read(input: DataInputStream, socket: Socket): JSONObject? =
+  Framing.read(input) { socket.soTimeout = 5000 }?.let { JSONObject(String(it, Charsets.UTF_8)) }
+ private fun send(out: DataOutputStream, obj: JSONObject) = Framing.write(out, obj.toString().toByteArray(Charsets.UTF_8))
  private fun handle(s: Socket, usb: Boolean) {
   var owns = false
   try {
    val input = DataInputStream(s.getInputStream()); val output = DataOutputStream(s.getOutputStream())
-   val hello = read(input)
+   val hello = read(input, s) ?: return
    if (hello.optInt("version") != 1) { send(output, JSONObject().put("type", "error").put("message", "Обновите Lenscast на обоих устройствах.")); return }
    if (!usb && !authenticate(hello, output)) return
    if (!occupied.compareAndSet(false, true)) { send(output, JSONObject().put("type", "error").put("message", "Телефон уже подключён. Отключите другое соединение.")); return }
@@ -99,38 +113,37 @@ class LinkService : Service() {
    val reply = JSONObject().put("type", "ready").put("version", 1).put("name", Build.MODEL).put("mode", State.mode.value)
    if (!usb && hello.optString("token").isEmpty()) {
     val token = ByteArray(32).also { random.nextBytes(it) }.joinToString("") { "%02x".format(it.toInt() and 255) }
-    prefs.edit().putString("tokenHash", hash(token)).apply(); reply.put("token", token); newCode()
+    check(prefs.edit().putString("tokenHash", hash(token)).commit()) { "Не удалось сохранить доверие" }; reply.put("token", token); newCode()
    }
    send(output, reply)
    State.status.value = if (usb) "ПК подключён · USB" else "ПК подключён · Wi-Fi"
    State.log(this, State.status.value)
    var nextTelemetry = 0L
+   var lastCommand = SystemClock.elapsedRealtime()
    while (alive.get() && !s.isClosed) {
     if (SystemClock.elapsedRealtime() >= nextTelemetry) {
      val t = telemetry(usb); send(output, t); State.telemetry.value = "Заряд ${t.optInt("battery")}% · ${t.optDouble("temperature")} °C · ${t.optString("network")}"
      nextTelemetry = SystemClock.elapsedRealtime() + 1000
     }
-    if (input.available() == 0) { Thread.sleep(25); continue }
-    s.soTimeout = 5000
-    // A timeout inside a partial frame closes the connection; never restart framing.
-    run {
-     val m = read(input)
-     when (m.optString("type")) {
-      "ping" -> send(output, JSONObject().put("type", "pong").put("sent", m.optLong("sent")).put("phoneUs", SystemClock.elapsedRealtimeNanos()/1000))
-      "stop" -> { stopSelf(); return }
-      "forget" -> { prefs.edit().remove("tokenHash").apply(); newCode(); return }
-     }
+    if (SystemClock.elapsedRealtime() - lastCommand > 8000) throw SocketTimeoutException("ПК не отвечает")
+    s.soTimeout = 250
+    val m = read(input, s) ?: continue
+    lastCommand = SystemClock.elapsedRealtime()
+    when (m.optString("type")) {
+     "ping" -> send(output, JSONObject().put("type", "pong").put("sent", m.optLong("sent")).put("phoneUs", SystemClock.elapsedRealtimeNanos()/1000))
+     "stop" -> { Handler(Looper.getMainLooper()).post { stopSelf() }; return }
+     "forget" -> { prefs.edit().remove("tokenHash").commit(); newCode(); return }
     }
    }
   } catch (e: Exception) { if (alive.get()) State.log(this, "Соединение завершено", e) }
-  finally { clients.remove(s); runCatching { s.close() }; if (owns) { occupied.set(false); State.status.value = "Связь прервана · ожидание ПК" } }
+  finally { clients.remove(s); runCatching { s.close() }; if (owns) { occupied.set(false); if (alive.get()) State.status.value = "Связь прервана · ожидание ПК" } }
  }
  @Synchronized private fun authenticate(h: JSONObject, out: DataOutputStream): Boolean {
   val now = SystemClock.elapsedRealtime()
-  if (now < blockedUntil) { send(out, JSONObject().put("type", "error").put("message", "Слишком много попыток. Подождите 30 секунд.")); return false }
   val token = h.optString("token")
   val expected = prefs.getString("tokenHash", "") ?: ""
   if (token.isNotEmpty() && expected.isNotEmpty() && MessageDigest.isEqual(hash(token).toByteArray(), expected.toByteArray())) return true
+  if (now < blockedUntil) { send(out, JSONObject().put("type", "error").put("message", "Слишком много попыток. Подождите 30 секунд.")); return false }
   if (now > codeExpires) newCode()
   val code = h.optString("code")
   if (code.isNotEmpty() && code == State.code.value) { attempts = 0; return true }
@@ -164,11 +177,14 @@ class LinkService : Service() {
   registration = callback
   nsd?.registerService(NsdServiceInfo().apply { serviceName = "Lenscast ${Build.MODEL}"; serviceType = "_lenscast._tcp."; port = 27183 }, NsdManager.PROTOCOL_DNS_SD, callback)
  }
- private fun fail(message: String, e: Exception) { State.status.value = message; State.log(this, message, e) }
+ private fun fail(message: String, e: Exception) { failure = message; State.status.value = message; State.log(this, message, e) }
  override fun onDestroy() {
-  alive.set(false); listeners.forEach { runCatching { it.close() } }; clients.forEach { runCatching { it.close() } }
-  registration?.let { runCatching { nsd?.unregisterService(it) } }; pool.shutdownNow()
-  State.running.value = false; State.code.value = ""; State.status.value = "Связь остановлена"
+  synchronized(lifecycleLock) {
+   alive.set(false); listeners.forEach { runCatching { it.close() } }; clients.forEach { runCatching { it.close() } }
+   registration?.let { runCatching { nsd?.unregisterService(it) } }
+  }
+  pool.shutdownNow()
+  State.running.value = false; State.code.value = ""; State.status.value = failure ?: "Связь остановлена"
   State.log(this, "Сервер остановлен"); super.onDestroy()
  }
 }

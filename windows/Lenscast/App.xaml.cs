@@ -2,8 +2,21 @@ using System.Windows;
 namespace Lenscast;
 public partial class App : Application
 {
+ internal static bool IsSmokeTest => Environment.GetCommandLineArgs().Contains("--ci-smoke");
  protected override void OnStartup(StartupEventArgs e) {
-  DispatcherUnhandledException += (_, args) => { Log.Write("Необработанная ошибка", args.Exception); MessageBox.Show("Не удалось выполнить действие. Сохраните журнал в настройках и перезапустите Lenscast.", "Lenscast"); args.Handled = true; };
+  DispatcherUnhandledException += (_, args) => { Log.Write("Необработанная ошибка", args.Exception); if(IsSmokeTest) { args.Handled=true; Shutdown(1); return; } MessageBox.Show("Не удалось выполнить действие. Сохраните журнал в настройках и перезапустите Lenscast.", "Lenscast"); args.Handled = true; };
   base.OnStartup(e);
+  if (IsSmokeTest) {
+   var timer=new System.Windows.Threading.DispatcherTimer { Interval=TimeSpan.FromSeconds(3) };
+   timer.Tick += (_,_)=>{
+    timer.Stop();
+    var window=Windows.OfType<MainWindow>().FirstOrDefault();
+    if(window is null || !window.IsLoaded || !window.IsVisible) { Shutdown(1); return; }
+    window.Width=760; window.Height=580; window.UpdateLayout();
+    Log.Write("Проверка загрузки WPF и минимального размера пройдена");
+    Shutdown(0);
+   };
+   timer.Start();
+  }
  }
 }

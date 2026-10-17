@@ -11,19 +11,19 @@
    <TextBlock Text="Адрес телефона · код первого подключения" Foreground="#9A9AA8"/></StackPanel></Border>
    <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="Защищённое подключение" FontSize="20"/><TextBlock Text="По Wi-Fi код нужен только один раз. По USB подтвердите отладку на телефоне. Одновременно подключается один телефон."/><Button Content="Отключиться" Click="Disconnect_Click" HorizontalAlignment="Left"/></StackPanel></Border>
   </StackPanel></ScrollViewer></TabItem>
-  <TabItem Header="Экран"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="0,20,8,0"><Border Style="{StaticResource Card}" MinHeight="300"><StackPanel VerticalAlignment="Center"><TextBlock Text="Экран телефона" FontSize="28" HorizontalAlignment="Center"/><TextBlock Text="Захват изображения будет доступен после блока Б." Foreground="#9A9AA8" HorizontalAlignment="Center"/></StackPanel></Border>
+  <TabItem Header="Экран"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="0,20,8,0"><Border Style="{StaticResource Card}" MinHeight="300"><StackPanel VerticalAlignment="Center"><TextBlock Text="Экран телефона" FontSize="28" HorizontalAlignment="Center"/><TextBlock Text="Передача изображения пока недоступна в этой сборке." Foreground="#9A9AA8" HorizontalAlignment="Center"/></StackPanel></Border>
   <Border Style="{StaticResource Card}"><WrapPanel IsEnabled="False"><Button Content="Назад"/><Button Content="Домой"/><Button Content="Недавние"/><Button Content="Полный экран"/><CheckBox Content="Поверх окон" VerticalAlignment="Center"/></WrapPanel></Border>
   <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="Состояние телефона" FontSize="20"/><TextBlock x:Name="ScreenTelemetry" Text="Подключите телефон"/><Button Content="Остановить на телефоне" Click="Stop_Click" HorizontalAlignment="Left"/></StackPanel></Border>
   </StackPanel></ScrollViewer></TabItem>
   <TabItem Header="Веб-камера"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="0,20,8,0">
   <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="Состояние телефона" FontSize="20"/><TextBlock x:Name="CameraTelemetry" Text="Подключите телефон"/></StackPanel></Border>
-  <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="Камера телефона" FontSize="28"/><TextBlock Text="Управление камерой появится в блоке В. Системная камера Windows — в блоке Г." Foreground="#9A9AA8"/><CheckBox Content="Предпросмотр" IsEnabled="False"/></StackPanel></Border>
+  <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="Камера телефона" FontSize="28"/><TextBlock Text="Передача с камеры пока недоступна в этой сборке." Foreground="#9A9AA8"/><CheckBox Content="Предпросмотр" IsEnabled="False"/></StackPanel></Border>
   <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="Изображение и качество" FontSize="20"/><TextBlock Text="После подключения камеры здесь будут только поддерживаемые ею модули, разрешения и частоты кадров."/><Expander Header="Фокус, экспозиция и баланс белого"><TextBlock Text="Возможности будут получены от телефона, без фиксированных списков." Margin="8,16"/></Expander><Expander Header="Профи"><TextBlock Text="Дополнительные параметры будут доступны при поддержке камерой." Margin="8,16"/></Expander></StackPanel></Border>
   </StackPanel></ScrollViewer></TabItem>
   <TabItem Header="Настройки"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="0,20,8,0">
    <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="Доверие и конфиденциальность" FontSize="22"/><TextBlock Text="Забыть телефон: удаляет сохранённые токен и отпечаток. При следующем подключении понадобится код."/><Button Content="Забыть телефон" Click="Forget_Click" HorizontalAlignment="Left"/></StackPanel></Border>
    <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="Если что-то пошло не так" FontSize="22"/><TextBlock Text="Сохраните журнал и пришлите его вместе с описанием последнего действия. Коды и токены в журнал не записываются."/><Button Content="Сохранить журнал" Click="Log_Click" HorizontalAlignment="Left"/></StackPanel></Border>
-   <TextBlock Text="Трей и автозапуск будут добавлены в блоке Д." Foreground="#9A9AA8"/>
+   <TextBlock Text="Трей и автозапуск пока недоступны в этой сборке." Foreground="#9A9AA8"/>
   </StackPanel></ScrollViewer></TabItem>
  </TabControl>
  <Border Grid.Row="2" Padding="16" Background="#1F1F26" CornerRadius="12" Margin="0,16,0,0"><TextBlock x:Name="Status" Text="Готов к подключению" Margin="0"/></Border>

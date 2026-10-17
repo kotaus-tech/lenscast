@@ -25,3 +25,21 @@ Android SDK и .NET SDK в Actions. Загруженные исходники н
 источник утверждения «собрано» — успешные jobs Actions, не наличие исходников.
 SDK Android пока зафиксирован на 36; проверка более нового стабильного SDK и
 соответствующее обновление нужны до объявления блока А завершённым.
+
+## Повторный аудит 18 октября
+
+- Официальная страница SDK Platform release notes проверена напрямую:
+  https://developer.android.com/tools/releases/platforms — верхний стабильный
+  раздел в полученном документе Android 16/API 36. compileSdk/targetSdk 36
+  оставлены; по случайному номеру из стороннего репозитория SDK не повышался.
+- NSD registerService и четыре RegistrationListener callbacks сверены с
+  официальным примером `use-nsd` (раздел Register your service).
+- Для connectedDevice сверены FOREGROUND_SERVICE_CONNECTED_DEVICE и разрешённая
+  предпосылка CHANGE_NETWORK_STATE в официальной таблице FGS types.
+- .NET UDP SendAsync(ReadOnlyMemory<byte>, IPEndPoint, CancellationToken) сверено
+  с dotnet/runtime `src/libraries/System.Net.Sockets/src/System/Net/Sockets/UDPClient.cs`.
+- Одноразовые mDNS-запросы с ephemeral-порта — RFC 6762 §6.7, Legacy Unicast
+  Responses. Не требуется занимать UDP 5353 рядом с системным mDNS Windows.
+- Android-приём намеренно **не использует available()**: это не индикатор
+  наличия зашифрованных данных. Idle timeout допустим до первого байта заголовка;
+  после первого байта любой тайм-аут закрывает сеанс. Добавлены JVM unit-тесты.

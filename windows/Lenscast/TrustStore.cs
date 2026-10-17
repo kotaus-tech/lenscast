@@ -10,6 +10,7 @@ internal static class TrustStore {
   catch (Exception e) { Log.Write("Не удалось прочитать сохранённое доверие",e); return []; }
  }
  internal static Trust? Load(string? address=null) => address is null ? All().LastOrDefault() : All().FirstOrDefault(t=>t.Address==address);
+ internal static Trust? ForFingerprint(string fingerprint) => All().FirstOrDefault(t=>t.Fingerprint==fingerprint);
  internal static void Save(Trust trust) { var list=All(); list.RemoveAll(t=>t.Fingerprint==trust.Fingerprint || t.Address==trust.Address); list.Add(trust); Directory.CreateDirectory(Log.DirectoryPath); File.WriteAllBytes(PathName, ProtectedData.Protect(JsonSerializer.SerializeToUtf8Bytes(list), null, DataProtectionScope.CurrentUser)); }
  internal static void Forget() { if (File.Exists(PathName)) File.Delete(PathName); }
 }

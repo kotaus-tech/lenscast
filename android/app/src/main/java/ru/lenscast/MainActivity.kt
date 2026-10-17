@@ -1,6 +1,8 @@
 package ru.lenscast
 
 import android.Manifest
+import android.app.NotificationManager
+import android.os.PowerManager
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -23,6 +25,7 @@ import androidx.core.content.FileProvider
 
 class MainActivity : ComponentActivity() {
  private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+  State.notificationsAllowed.value = granted
   State.status.value = if (granted) "Уведомления разрешены" else "Разрешите уведомления в настройках, чтобы видеть кнопку «Стоп»."
  }
  override fun onCreate(savedInstanceState: Bundle?) {
@@ -40,7 +43,14 @@ class MainActivity : ComponentActivity() {
       if(settings) {
        Panel("Подготовка телефона") {
         Text("Разрешения запрашиваются по одному. Камера и микрофон для связи не нужны.")
-        Button(onClick={ if(Build.VERSION.SDK_INT>=33) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS) }, Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text("Разрешить уведомления") }
+        Text(if(State.notificationsAllowed.value) "Уведомления разрешены" else "Уведомления выключены: кнопка «Стоп» может быть скрыта.")
+        Button(onClick={
+         if(Build.VERSION.SDK_INT>=33 && !getPreferences(MODE_PRIVATE).getBoolean("notificationAsked", false)) {
+          getPreferences(MODE_PRIVATE).edit().putBoolean("notificationAsked",true).apply()
+          notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+         } else safeOpen(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE,packageName))
+        }, Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text("Настроить уведомления") }
+        Text(if(State.backgroundAllowed.value) "Ограничение батареи снято" else "Система может ограничивать работу в фоне. В настройках батареи выберите Lenscast и снимите ограничение.")
         OutlinedButton(onClick={ safeOpen(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }, Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text("Работа в фоне") }
         Text("${Build.MANUFACTURER}: разрешите автозапуск и закрепите Lenscast в недавних приложениях. Эти настройки зависят от прошивки.")
         OutlinedButton(onClick={ safeOpen(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))) }, Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text("Настройки приложения") }
@@ -67,8 +77,10 @@ class MainActivity : ComponentActivity() {
        }
        Button(onClick={
         val intent=Intent(this@MainActivity, LinkService::class.java)
-        if(State.running.value) stopService(intent) else startForegroundService(intent)
+        try { if(State.running.value) stopService(intent) else startForegroundService(intent) }
+        catch(e: Exception) { State.status.value="Не удалось запустить связь. Откройте приложение и попробуйте ещё раз."; State.log(this@MainActivity,"Ошибка запуска службы",e) }
        }, Modifier.fillMaxWidth().heightIn(min=56.dp)) { Text(if(State.running.value) "Стоп" else "Старт") }
+       if(!State.notificationsAllowed.value) Text("Уведомления выключены. Разрешите их в настройках Lenscast, чтобы видеть кнопку «Стоп».", color=Color(0xFFF0B866))
        Text("Сейчас доступна связь с ПК. Передача изображения появится в следующих блоках.", color=Color(0xFFF0B866))
        Panel("Состояние телефона") { Text(State.telemetry.value) }
       }
@@ -79,6 +91,11 @@ class MainActivity : ComponentActivity() {
  }
  @Composable private fun Panel(title: String, content: @Composable ColumnScope.()->Unit) {
   Card { Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement=Arrangement.spacedBy(12.dp)) { Text(title, fontSize=18.sp); content() } }
+ }
+ override fun onResume() {
+  super.onResume()
+  State.notificationsAllowed.value=getSystemService(NotificationManager::class.java).areNotificationsEnabled()
+  State.backgroundAllowed.value=getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)
  }
  private fun safeOpen(intent: Intent) { try { startActivity(intent) } catch(e: Exception) { State.status.value="Настройки недоступны. Откройте их вручную."; State.log(this,"Не удалось открыть настройки",e) } }
  private fun shareLog() {

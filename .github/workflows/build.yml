@@ -26,8 +26,12 @@ jobs:
       - name: Сборка и проверка APK
         working-directory: android
         run: |
-          gradle --no-daemon :app:assembleRelease :app:lintRelease
+          gradle --no-daemon --write-locks :app:assembleRelease :app:lintRelease :app:testReleaseUnitTest
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose app/build/outputs/apk/release/app-release.apk
+      - name: Манифест зависимостей Android
+        working-directory: android
+        run: |
+          python3 -c 'from pathlib import Path; print("::notice title=android-lock::" + Path("app/gradle.lockfile").read_text().replace("%", "%25").replace("\n", "%0A"))'
       - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
           name: Lenscast-Android
@@ -43,6 +47,19 @@ jobs:
         run: dotnet publish windows/Lenscast/Lenscast.csproj -c Release -o artifacts/windows
       - name: Автоматические проверки протокола
         run: dotnet run --project tests/Lenscast.Tests -c Release
+      - name: Проверка запуска интерфейса WPF
+        shell: pwsh
+        run: |
+          $p = Start-Process artifacts/windows/Lenscast.exe -ArgumentList '--ci-smoke' -PassThru
+          if (-not $p.WaitForExit(30000)) { $p.Kill(); throw 'Приложение не завершило проверку запуска' }
+          if ($p.ExitCode -ne 0) { throw 'Ошибка загрузки интерфейса WPF' }
+      - name: Манифест зависимостей Windows
+        shell: pwsh
+        run: |
+          foreach ($file in @('windows/Lenscast/packages.lock.json','tests/Lenscast.Tests/packages.lock.json')) {
+            $text = (Get-Content $file -Raw).Replace('%','%25').Replace("`r",'%0D').Replace("`n",'%0A')
+            Write-Output "::notice title=${file}::$text"
+          }
       - name: Компонент USB
         shell: pwsh
         run: |
@@ -52,11 +69,28 @@ jobs:
           New-Item -ItemType Directory artifacts/windows/adb
           Copy-Item "$env:RUNNER_TEMP/adb/platform-tools/adb.exe","$env:RUNNER_TEMP/adb/platform-tools/AdbWinApi.dll","$env:RUNNER_TEMP/adb/platform-tools/AdbWinUsbApi.dll","$env:RUNNER_TEMP/adb/platform-tools/NOTICE.txt" artifacts/windows/adb
           Copy-Item docs/THIRD_PARTY.md artifacts/windows
-      - name: Установщик
+      - name: Установщик Inno Setup 6.4.3
         shell: pwsh
         run: |
-          & "${env:ProgramFiles(x86)}/Inno Setup 6/ISCC.exe" installer/Lenscast.iss
+          $ErrorActionPreference = 'Stop'
+          $download = "$env:RUNNER_TEMP/innosetup.exe"
+          Invoke-WebRequest 'https://github.com/jrsoftware/issrc/releases/download/is-6_4_3/innosetup-6.4.3.exe' -OutFile $download
+          if ((Get-FileHash $download -Algorithm SHA256).Hash -ne 'F3C42116542C4CC57263C5BA6C4FEABFC49FE771F2F98A79D2F7628B8762723B') { throw 'Контрольная сумма Inno Setup не совпала' }
+          $p = Start-Process $download -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR=$env:RUNNER_TEMP/inno" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw 'Не удалось подготовить Inno Setup' }
+          & "$env:RUNNER_TEMP/inno/ISCC.exe" installer/Lenscast.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Проверка установки и удаления
+        shell: pwsh
+        run: |
+          $dir = "$env:RUNNER_TEMP/Lenscast-installed"
+          $p = Start-Process artifacts/Lenscast-Setup.exe -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR=$dir" -Wait -PassThru
+          if ($p.ExitCode -ne 0 -or -not (Test-Path "$dir/Lenscast.exe") -or -not (Test-Path "$dir/adb/adb.exe")) { throw 'Проверка установки не пройдена' }
+          $p = Start-Process "$dir/Lenscast.exe" -ArgumentList '--ci-smoke' -PassThru
+          if (-not $p.WaitForExit(30000)) { $p.Kill(); throw 'Установленное приложение не отвечает' }
+          if ($p.ExitCode -ne 0) { throw 'Установленное приложение не запускается' }
+          $p = Start-Process "$dir/unins000.exe" -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Wait -PassThru
+          if ($p.ExitCode -ne 0 -or (Test-Path "$dir/Lenscast.exe")) { throw 'Проверка удаления не пройдена' }
       - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
           name: Lenscast-Windows

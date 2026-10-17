@@ -15,15 +15,17 @@ internal static class Discovery {
   if(devices.Count>1) throw new InvalidOperationException("Подключите только один телефон по USB.");
   var result=new List<Phone>();
   foreach(var d in devices) {
-   await Run(adb,$"-s {d[0]} forward tcp:27185 tcp:27185");
-   var name=(await Run(adb,$"-s {d[0]} shell getprop ro.product.model")).Trim();
+   await Run(adb,"-s",d[0],"forward","tcp:27185","tcp:27185");
+   var name=(await Run(adb,"-s",d[0],"shell","getprop","ro.product.model")).Trim();
    result.Add(new(name,"127.0.0.1",true));
   }
   if(result.Count==0 && output.Contains("unauthorized")) throw new InvalidOperationException("Подтвердите отладку по USB на телефоне и повторите поиск.");
   return result;
  }
- private static async Task<string> Run(string file,string args) {
-  using var p=Process.Start(new ProcessStartInfo(file,args) { UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true })!;
+ private static async Task<string> Run(string file,params string[] args) {
+  var info=new ProcessStartInfo(file) { UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true };
+  foreach(var arg in args) info.ArgumentList.Add(arg);
+  using var p=Process.Start(info)!;
   using var ct=new CancellationTokenSource(TimeSpan.FromSeconds(15));
   var stdout=p.StandardOutput.ReadToEndAsync(); var stderr=p.StandardError.ReadToEndAsync();
   try { await p.WaitForExitAsync(ct.Token); } catch { p.Kill(true); throw; }
@@ -31,20 +33,40 @@ internal static class Discovery {
   return await stdout;
  }
  internal static async Task<List<Phone>> Network() {
-  // DNS-SD PTR query; Android NSD includes SRV and A/AAAA additional records.
-  using var udp=new UdpClient(AddressFamily.InterNetwork);
-  udp.Client.SetSocketOption(SocketOptionLevel.Socket,SocketOptionName.ReuseAddress,true);
-  udp.Client.Bind(new IPEndPoint(IPAddress.Any,5353));
-  udp.JoinMulticastGroup(IPAddress.Parse("224.0.0.251"));
-  var query=new List<byte>(new byte[12]); query[5]=1;
-  foreach(var label in "_lenscast._tcp.local".Split('.')) { query.Add((byte)label.Length); query.AddRange(Encoding.UTF8.GetBytes(label)); }
-  query.AddRange(new byte[]{0,0,12,0,1});
-  await udp.SendAsync(query.ToArray(),new IPEndPoint(IPAddress.Parse("224.0.0.251"),5353));
+  // RFC 6762 §6.7: a one-shot query from an ephemeral port gets a unicast reply.
+  // No dependency on owning port 5353 (often already held by Windows or Bonjour).
+  using var udp=new UdpClient(new IPEndPoint(IPAddress.Any,0));
+  var destination=new IPEndPoint(IPAddress.Parse("224.0.0.251"),5353);
+  await udp.SendAsync(Query("_lenscast._tcp.local",12),destination);
   using var ct=new CancellationTokenSource(TimeSpan.FromSeconds(4));
   var names=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
   var hosts=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
-  try { while(true) { var response=await udp.ReceiveAsync(ct.Token); Parse(response.Buffer,names,hosts); } } catch(OperationCanceledException) {}
+  var queried=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+  try {
+   while(true) {
+    var response=await udp.ReceiveAsync(ct.Token);
+    if(response.RemoteEndPoint.Port!=5353) continue;
+    Parse(response.Buffer,names,hosts);
+    foreach(var service in names.ToList()) {
+     if(string.IsNullOrEmpty(service.Value)) {
+      if(queried.Add("SRV:"+service.Key)) await udp.SendAsync(Query(service.Key,33),destination,ct.Token);
+     } else if(!hosts.ContainsKey(service.Value) && queried.Add("A:"+service.Value)) {
+      await udp.SendAsync(Query(service.Value,1),destination,ct.Token);
+     }
+    }
+   }
+  } catch(OperationCanceledException) {}
   return names.Where(x=>hosts.ContainsKey(x.Value)).Select(x=>new Phone(x.Key.Replace("._lenscast._tcp.local","",StringComparison.OrdinalIgnoreCase),hosts[x.Value],false)).DistinctBy(p=>p.Address).ToList();
+ }
+ internal static byte[] Query(string name, ushort type) {
+  var query=new List<byte>(new byte[12]); query[5]=1;
+  foreach(var label in name.Split('.')) {
+   var bytes=Encoding.UTF8.GetBytes(label);
+   if(bytes.Length is <1 or >63) throw new InvalidDataException("Недопустимое имя в сети");
+   query.Add((byte)bytes.Length); query.AddRange(bytes);
+  }
+  query.AddRange(new byte[]{0,(byte)(type>>8),(byte)type,0,1});
+  return query.ToArray();
  }
  private static string Name(byte[] b,ref int offset) {
   var result=new List<string>(); var pos=offset; int end=-1;
@@ -66,6 +88,10 @@ internal static class Discovery {
    for(int i=0;i<count;i++) {
     var name=Name(b,ref pos); int type=U16(b,pos), len=U16(b,pos+8); pos+=10;
     if(pos+len>b.Length) return;
+    if(type==12 && name.Equals("_lenscast._tcp.local",StringComparison.OrdinalIgnoreCase)) {
+     int p=pos; var target=Name(b,ref p);
+     if(target.EndsWith("._lenscast._tcp.local",StringComparison.OrdinalIgnoreCase)) names.TryAdd(target,"");
+    }
     if(type==33 && name.EndsWith("._lenscast._tcp.local",StringComparison.OrdinalIgnoreCase) && len>=7 && U16(b,pos+4)==27183) { int p=pos+6; names[name]=Name(b,ref p); }
     if(type==1 && len==4) hosts[name]=new IPAddress(b.AsSpan(pos,4)).ToString();
     pos+=len;
