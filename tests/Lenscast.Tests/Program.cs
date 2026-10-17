@@ -88,3 +88,5 @@ Record("android.local",1,()=>dns.AddRange(new byte[]{192,0,2,7}));
 names.Clear(); hosts.Clear(); Discovery.Parse(dns.ToArray(),names,hosts);
 Check(names["Телефон._lenscast._tcp.local"]=="android.local" && hosts["android.local"]=="192.0.2.7","DNS-SD PTR/SRV/A и русское имя");
 Check(Discovery.Query("_lenscast._tcp.local",12)[5]==1,"Формат запроса DNS-SD");
+
+await Lenscast.Tests.DiscoveryRegressionTests.Run();

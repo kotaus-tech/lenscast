@@ -32,6 +32,39 @@ jobs:
         with:
           name: Lenscast-Android
           path: android/app/build/outputs/apk/release/app-release.apk
+  android-link:
+    needs: android
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [30, 36]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: Lenscast-Android
+          path: artifacts/android
+      - name: Доступ к аппаратной виртуализации
+        run: sudo chmod 666 /dev/kvm
+      - name: Настоящий Android-сервер, USB-loopback и TLS
+        uses: ReactiveCircus/android-emulator-runner@4c44018e59b437e86cdfc41da381398f93ed8808 # v2
+        with:
+          api-level: ${{ matrix.api }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          ram-size: 2048M
+          emulator-boot-timeout: 300
+          script: python3 .github/scripts/android_link_smoke.py artifacts/android/app-release.apk
+      - name: Журнал Android при сбое
+        if: failure()
+        run: adb logcat -d -s AndroidRuntime:E || true
   windows:
     runs-on: windows-2022
     steps:
@@ -84,16 +117,30 @@ jobs:
           $p = Start-Process "$dir/Lenscast.exe" -ArgumentList '--ci-smoke' -PassThru
           if (-not $p.WaitForExit(30000)) { $p.Kill(); throw 'Установленное приложение не отвечает' }
           if ($p.ExitCode -ne 0) { throw 'Установленное приложение не запускается' }
+          $rule = Get-NetFirewallRule -DisplayName 'Lenscast: поиск телефона' -ErrorAction Stop
+          if ($rule.Profile -ne 'Private' -or $rule.Action -ne 'Allow') { throw 'Неверное правило обнаружения' }
+          # Simulate an existing default adb owned by another tool. Uninstall must leave it alone.
+          $foreign = "$env:RUNNER_TEMP/other-adb"
+          Copy-Item "$dir/adb" $foreign -Recurse
+          & "$foreign/adb.exe" -P 5037 kill-server
+          & "$foreign/adb.exe" -P 5037 devices
+          if ($LASTEXITCODE -ne 0) { throw 'Не удалось подготовить общий adb' }
+          $foreignExe = (Get-Item "$foreign/adb.exe").FullName
+          $foreignProcess = Get-Process adb -ErrorAction Stop | Where-Object { $_.Path -eq $foreignExe } | Select-Object -First 1
+          if (-not $foreignProcess) { throw 'Не запущен контрольный adb другого приложения' }
           & "$dir/adb/adb.exe" -P 5038 devices
           if ($LASTEXITCODE -ne 0) { throw 'Компонент USB не запускается' }
           $p = Start-Process "$dir/unins000.exe" -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Wait -PassThru
           if ($p.ExitCode -ne 0 -or (Test-Path "$dir/Lenscast.exe") -or (Test-Path "$dir/adb/adb.exe")) { throw 'Проверка удаления не пройдена' }
+          if (Get-NetFirewallRule -DisplayName 'Lenscast: поиск телефона' -ErrorAction SilentlyContinue) { throw 'Правило обнаружения не удалено' }
+          if (-not (Get-Process -Id $foreignProcess.Id -ErrorAction SilentlyContinue)) { throw 'Удаление затронуло общий adb другого приложения' }
+          & "$foreign/adb.exe" -P 5037 kill-server
       - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
           name: Lenscast-Windows
           path: artifacts/Lenscast-Setup.exe
   release:
-    needs: [android, windows]
+    needs: [android, windows, android-link]
     if: github.event_name == 'push'
     runs-on: ubuntu-24.04
     steps:

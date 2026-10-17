@@ -6,3 +6,5 @@
 local.properties
 *.user
 artifacts/
+
+__pycache__/

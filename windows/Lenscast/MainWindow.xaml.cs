@@ -14,16 +14,20 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow {
  private readonly DispatcherTimer discoveryTimer = new() { Interval = TimeSpan.FromSeconds(15) };
  private bool searching;
  private bool closing;
+ private bool updatingDevices;
+ private readonly CancellationTokenSource lifetime=new();
+ private readonly SemaphoreSlim wifiSearch=new(1,1), usbSearch=new(1,1);
  public MainWindow() {
   InitializeComponent();
   connection.Status += s=>Dispatcher.InvokeAsync(()=>Status.Text=s);
   connection.Roundtrip += ms=>Dispatcher.InvokeAsync(()=>roundtrip=ms);
   connection.Telemetry += t=>Dispatcher.InvokeAsync(()=>ShowTelemetry(t));
-  Closed += (_,_)=>{ closing=true; discoveryTimer.Stop(); connection.Dispose(); };
+  Closed += (_,_)=>{ closing=true; lifetime.Cancel(); discoveryTimer.Stop(); connection.Dispose(); };
   Loaded += async (_,_)=>{ if (!App.IsSmokeTest) { await AutoFind(); if (!closing) discoveryTimer.Start(); } };
   discoveryTimer.Tick += async (_,_)=>await AutoFind();
   Address.Text=TrustStore.Load()?.Address ?? "";
-  Log.Write("Lenscast запущен");
+  VersionText.Text="Версия "+typeof(App).Assembly.GetName().Version?.ToString(3);
+  Log.Write("Lenscast запущен · "+typeof(App).Assembly.GetName().Version);
  }
  private void ShowTelemetry(JsonElement t) {
   var text=$"Заряд {t.GetProperty("battery").GetInt32()}%{(t.GetProperty("charging").GetBoolean()?" · заряжается":"")}   ·   {t.GetProperty("temperature").GetDouble():F1} °C   ·   {t.GetProperty("network").GetString()}";
@@ -37,31 +41,62 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow {
  private async Task AutoFind() {
   if (searching || closing) return;
   searching=true;
-  try { await Find(false, true); if (!closing) await Find(true, true); }
+  try { await Task.WhenAll(Find(false,true),Find(true,true)); }
   finally { searching=false; }
  }
  private async Task Find(bool useUsb, bool silent=false) {
-  if (!silent) Status.Text="Ищем телефоны…";
+  var gate=useUsb?usbSearch:wifiSearch;
+  if(closing || !await gate.WaitAsync(0,lifetime.Token)) return;
+  var button=useUsb?FindUsb:FindWifi;
+  var hint=useUsb?UsbHint:WifiHint;
+  button.IsEnabled=false;
+  hint.Text=useUsb?"USB: проверяем подключение…":"Wi-Fi: ищем телефоны…";
+  if(!silent) Status.Text="Ищем телефоны…";
   try {
-   var found=useUsb?await Discovery.Usb():await Discovery.Network();
-   if (closing) return;
-   var selected=Devices.SelectedItem as Phone;
+   var found=useUsb?await Discovery.Usb(lifetime.Token):await Discovery.Network(lifetime.Token);
+   if(closing) return;
+   ReplacePhones(useUsb,found);
+   hint.Text=found.Count>0
+    ?(useUsb?"USB: телефон найден. Нажмите «Старт» на телефоне и подключитесь.":"Wi-Fi: телефон найден. Выберите его и введите код.")
+    :"Wi-Fi: телефон не найден. Попробуйте адрес с экрана телефона.";
+   if(!silent) Status.Text=found.Count>0?"Выберите телефон из списка.":hint.Text;
+  } catch(OperationCanceledException) when(lifetime.IsCancellationRequested) { }
+  catch(Exception ex) {
+   Log.Write(useUsb?"Ошибка поиска USB":"Ошибка поиска Wi-Fi",ex);
+   if(closing) return;
+   ReplacePhones(useUsb,[]);
+   hint.Text=ex is UsbDiscoveryException ? ex.Message : useUsb
+    ?"USB: проверка не удалась. Сохраните журнал в настройках."
+    :"Wi-Fi: поиск недоступен. Введите адрес с экрана телефона.";
+   if(!silent) Status.Text=hint.Text;
+  } finally { if(!closing) button.IsEnabled=true; gate.Release(); }
+ }
+ private void ReplacePhones(bool useUsb,IEnumerable<Phone> found) {
+  var selected=Devices.SelectedItem as Phone;
+  updatingDevices=true;
+  try {
    phones.RemoveAll(p=>p.Usb==useUsb); phones.AddRange(found);
    Devices.ItemsSource=phones.ToList();
-   if (selected is not null) Devices.SelectedItem=phones.FirstOrDefault(p=>p.Address==selected.Address && p.Usb==selected.Usb);
-   if (!silent) Status.Text=phones.Count>0?"Выберите телефон из списка.":"Телефон не найден. Проверьте «Старт» на телефоне или введите его адрес.";
-  }
-  catch(Exception ex) {
-   Log.Write("Не удалось найти телефон",ex);
-   if (!silent) Status.Text=ex is UsbDiscoveryException ? ex.Message : useUsb?"USB недоступен. Проверьте кабель и подтвердите отладку на телефоне.":"Поиск в сети недоступен. Введите адрес телефона вручную.";
-  }
+   if(selected is not null) Devices.SelectedItem=phones.FirstOrDefault(p=>p.Address==selected.Address && p.Usb==selected.Usb);
+  } finally { updatingDevices=false; }
  }
- private void Devices_SelectionChanged(object sender,SelectionChangedEventArgs e) { if(Devices.SelectedItem is Phone p) { Address.Text=p.Address; usb=p.Usb; } }
- private void Connect_Click(object sender,RoutedEventArgs e) {
+ private void Devices_SelectionChanged(object sender,SelectionChangedEventArgs e) { if(!updatingDevices && Devices.SelectedItem is Phone p) { Address.Text=p.Address; usb=p.Usb; } }
+ private async void Connect_Click(object sender,RoutedEventArgs e) {
   if(!IPAddress.TryParse(Address.Text.Trim(),out var ip) || ip.AddressFamily!=System.Net.Sockets.AddressFamily.InterNetwork) { Status.Text="Введите IPv4-адрес телефона из настроек Wi-Fi."; return; }
   if(IPAddress.IsLoopback(ip) && !usb) { Status.Text="Для USB нажмите «Проверить USB» и выберите телефон."; return; }
   if (!string.IsNullOrEmpty(Code.Text) && (Code.Text.Length!=6 || !Code.Text.All(char.IsAsciiDigit))) { Status.Text="Введите шесть цифр с экрана телефона."; return; }
-  roundtrip=null; sessionAddress=ip.ToString(); connection.Start(ip.ToString(),Code.Text.Trim(),usb && IPAddress.IsLoopback(ip)); Code.Clear();
+  var useUsb=usb && IPAddress.IsLoopback(ip);
+  ConnectButton.IsEnabled=false;
+  try {
+   if(useUsb) {
+    if(Devices.SelectedItem is not Phone { Usb:true,UsbSerial:not null } phone) { Status.Text="Выберите телефон USB из списка."; return; }
+    Status.Text="Готовим подключение USB…";
+    await UsbDiscovery.Forward(phone.UsbSerial,lifetime.Token);
+   }
+   roundtrip=null; sessionAddress=ip.ToString(); connection.Start(ip.ToString(),Code.Text.Trim(),useUsb); Code.Clear();
+  } catch(OperationCanceledException) when(lifetime.IsCancellationRequested) { }
+  catch(Exception ex) { Log.Write("Не удалось подготовить подключение",ex); Status.Text=ex is UsbDiscoveryException ? ex.Message : "Подключение не удалось. Сохраните журнал в настройках."; }
+  finally { if(!closing) ConnectButton.IsEnabled=true; }
  }
  private void Disconnect_Click(object sender,RoutedEventArgs e) { connection.Dispose(); Status.Text="Отключено"; }
  private async void Stop_Click(object sender,RoutedEventArgs e) { try { await connection.Send(new {type="stop"}); connection.Dispose(); Status.Text="Связь остановлена на телефоне"; } catch(Exception ex) { Log.Write("Остановка не доставлена",ex); Status.Text="Не удалось остановить телефон. Нажмите «Стоп» на телефоне."; } }

@@ -47,22 +47,43 @@ class LinkService : Service() {
   notification = builder
   startForeground(1, builder.build())
   State.running.value = true
-  newCode()
+  State.wifiReady.value=false
+  State.discoveryWarning.value=""
+  updateStatus("Подготавливаем подключение…")
   pool.execute {
    try {
-    val context = tls()
     if (!alive.get()) return@execute
-    // TLS in LAN. Plain TCP is bound ONLY to loopback, reachable through authorized adb.
-    listen(context.serverSocketFactory.createServerSocket(27183), false)
+    // USB does not depend on the AndroidKeyStore/TLS initialization succeeding.
     listen(ServerSocket(27185, 4, InetAddress.getByName("127.0.0.1")), true)
-    synchronized(lifecycleLock) { if (alive.get()) advertise() }
+    State.log(this,"USB: сервер слушает только 127.0.0.1:27185")
+    try {
+     val context=tls()
+     if (!alive.get()) return@execute
+     listen(context.serverSocketFactory.createServerSocket(27183), false)
+     State.wifiReady.value=true
+     newCode()
+     State.log(this,"Wi-Fi: сервер TLS слушает порт 27183")
+     synchronized(lifecycleLock) {
+      if (alive.get()) runCatching { advertise() }.onFailure {
+       State.discoveryWarning.value="Автопоиск недоступен. Введите адрес с этого экрана в Lenscast на ПК."
+       State.log(this,"Не удалось опубликовать обнаружение",it)
+      }
+     }
+    } catch(e: Exception) {
+     State.discoveryWarning.value="Wi-Fi не удалось подготовить. Сохраните журнал в настройках. USB остаётся доступен."
+     State.log(this,"Ошибка подготовки Wi-Fi/TLS",e)
+    }
     pool.execute {
      while (alive.get()) {
-      synchronized(this) { if (SystemClock.elapsedRealtime() > codeExpires) newCode() }
+      synchronized(this) { if (State.wifiReady.value && SystemClock.elapsedRealtime() > codeExpires) newCode() }
+      runCatching {
+       val address=NetworkAddresses.wifi(this)
+       if(address!=State.address.value) { State.address.value=address; State.log(this,"Адрес Wi-Fi: $address") }
+      }.onFailure { State.log(this,"Не удалось обновить адрес Wi-Fi",it) }
       try { Thread.sleep(1000) } catch (_: InterruptedException) { break }
      }
     }
-    if (alive.get()) updateStatus("Ожидание ПК · связь запущена")
+    if (alive.get()) updateStatus(if(State.wifiReady.value) "Ожидание ПК · связь запущена" else "Ожидание ПК · USB готов")
     State.log(this, "Сервер связи запущен")
    } catch (e: Exception) { fail("Не удалось открыть связь. Нажмите «Старт» ещё раз.", e); stopSelf() }
   }
@@ -172,8 +193,14 @@ class LinkService : Service() {
  private fun advertise() {
   nsd = getSystemService(NsdManager::class.java)
   val callback = object : NsdManager.RegistrationListener {
-   override fun onServiceRegistered(info: NsdServiceInfo) { State.log(this@LinkService, "Обнаружение опубликовано") }
-   override fun onRegistrationFailed(info: NsdServiceInfo, code: Int) { State.log(this@LinkService, "Обнаружение недоступно: $code") }
+   override fun onServiceRegistered(info: NsdServiceInfo) {
+    State.discoveryWarning.value=""
+    State.log(this@LinkService,"Обнаружение опубликовано: ${info.serviceName}, ${info.serviceType}, порт ${info.port}")
+   }
+   override fun onRegistrationFailed(info: NsdServiceInfo, code: Int) {
+    State.discoveryWarning.value="Автопоиск недоступен. Введите адрес с этого экрана в Lenscast на ПК."
+    State.log(this@LinkService,"Обнаружение недоступно: $code")
+   }
    override fun onServiceUnregistered(info: NsdServiceInfo) {}
    override fun onUnregistrationFailed(info: NsdServiceInfo, code: Int) {}
   }
@@ -193,7 +220,7 @@ class LinkService : Service() {
    registration?.let { runCatching { nsd?.unregisterService(it) } }
   }
   pool.shutdownNow()
-  State.running.value = false; State.code.value = ""; State.status.value = failure ?: "Связь остановлена"
+  State.wifiReady.value=false; State.discoveryWarning.value=""; State.running.value = false; State.code.value = ""; State.status.value = failure ?: "Связь остановлена"
   State.log(this, "Сервер остановлен"); super.onDestroy()
  }
 }

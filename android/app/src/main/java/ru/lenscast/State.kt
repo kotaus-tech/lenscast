@@ -7,6 +7,9 @@ import java.util.Date
 import java.util.Locale
 
 object State {
+ val address = mutableStateOf("")
+ val discoveryWarning = mutableStateOf("")
+ val wifiReady = mutableStateOf(false)
  val running = mutableStateOf(false)
  val status = mutableStateOf("Готов к подключению")
  val notificationsAllowed = mutableStateOf(false)

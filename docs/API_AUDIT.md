@@ -57,3 +57,31 @@ SDK Android зафиксирован на 36; основание выбора п
   сверены с официальной справкой Inno Setup `topic_scriptevents.htm` и
   `topic_isxfunc_exec.htm`. Остановка собственного adb до замены/удаления файлов
   проверяется установочным smoke-тестом.
+
+## Исправления обнаружения 0.1.1
+
+- UDP JoinMulticastGroup(IPAddress, IPAddress), ReceiveAsync(CancellationToken) и
+  SendAsync(ReadOnlyMemory<byte>, IPEndPoint, CancellationToken) повторно сверены
+  с официальным dotnet/runtime `System.Net.Sockets/.../UDPClient.cs`.
+- MulticastInterface задаётся IPv4-адресом конкретного NIC. Запрос с 5353 содержит
+  QU-бит класса; отдельный ephemeral-сокет принимает legacy unicast ответы.
+  Основания: RFC 6762 §§5.4/6.7/15. Повтор запроса раз в секунду, не при каждом
+  постороннем пакете. Пакеты PTR/SRV/A проверяются реальным UDP-тестом с потерей
+  первого запроса и раздельными записями.
+- `adb devices -l`, состояния device/unauthorized/offline, общий сервер 5037 и
+  Windows native backend сверены с developer.android.com/tools/adb. Не добавляем
+  случайные USB-драйверы и не убиваем общий сервер для «исправления» обнаружения.
+- Inno: ExtractTemporaryFile, PrepareToInstall и Exec проверены в официальной
+  справке jrsoftware.org. Windows Get-Process/Path, Stop-Process и Wait-Process
+  используются только для adb по точному пути этой установки, с проверкой в CI
+  сохранности процесса из другой папки.
+- netsh advfirewall firewall add/delete rule сверены с Microsoft Learn;
+  правило только для исполняемого файла Lenscast, UDP с remoteport=5353,
+  remoteip=LocalSubnet, profile=private. Глобальные настройки firewall не меняются.
+- Адрес телефона: ConnectivityManager.getAllNetworks/getNetworkCapabilities/
+  getLinkProperties и LinkProperties.getLinkAddresses сверены с официальным AOSP
+  platform_frameworks_base, ref android-11.0.0_r1, core/java/android/net.
+- Реальный APK дополнительно проверяется в Android Emulator API 30/36. Входы
+  api-level/target/arch/profile/script сверены с action.yml android-emulator-runner
+  v2; action закреплён SHA. Скрипт проверяет FGS, KeyStore/TLS, код и токен без
+  вывода секретов. Эмулятор не доказывает работу OEM USB-драйвера или реального mDNS.

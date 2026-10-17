@@ -102,7 +102,7 @@ internal sealed class Connection : IDisposable {
     }
     catch (Exception e) {
      Log.Write("Связь прервана", e);
-     if (first) { Report(session, "Телефон недоступен. Проверьте адрес и нажмите «Старт» на телефоне."); break; }
+     if (first) { Report(session, usb ? "Телефон найден, но Lenscast не отвечает. Нажмите «Старт» на телефоне и подключитесь снова." : "Телефон недоступен. Проверьте адрес и нажмите «Старт» на телефоне."); break; }
     }
     finally { session.Stream = null; }
     try { await Task.Delay(1500, ct); } catch (OperationCanceledException) { break; }

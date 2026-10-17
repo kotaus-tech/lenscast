@@ -41,6 +41,9 @@ class MainActivity : ComponentActivity() {
       }
       Text("Телефон рядом. Картинка — перед вами.", color=Color(0xFF9A9AA8))
       if(settings) {
+       @Suppress("DEPRECATION")
+       val version=packageManager.getPackageInfo(packageName,0).versionName
+       Text("Версия $version", color=Color(0xFF9A9AA8))
        Panel("Подготовка телефона") {
         Text("Разрешения запрашиваются по одному. Камера и микрофон для связи не нужны.")
         Text(if(State.notificationsAllowed.value) "Уведомления разрешены" else "Уведомления выключены: кнопка «Стоп» может быть скрыта.")
@@ -69,7 +72,12 @@ class MainActivity : ComponentActivity() {
        }
        Panel("Подключение") {
         Text(State.status.value)
-        if(State.running.value) {
+        if(State.address.value.isNotEmpty()) {
+         Text("Адрес для подключения вручную", color=Color(0xFF9A9AA8))
+         Text(State.address.value, fontSize=24.sp)
+        }
+        if(State.discoveryWarning.value.isNotEmpty()) Text(State.discoveryWarning.value, color=Color(0xFFF0B866))
+        if(State.running.value && State.wifiReady.value) {
          Text("Код для первого подключения", color=Color(0xFF9A9AA8))
          Text(State.code.value, fontSize=40.sp, letterSpacing=6.sp)
          Text("Код действует 3 минуты. ПК и телефон должны быть в одной сети.")
@@ -94,6 +102,10 @@ class MainActivity : ComponentActivity() {
  }
  override fun onResume() {
   super.onResume()
+  runCatching { State.address.value=NetworkAddresses.wifi(this) }.onFailure { State.log(this,"Не удалось получить адрес Wi-Fi",it) }
+  @Suppress("DEPRECATION")
+  val version=packageManager.getPackageInfo(packageName,0).versionName
+  State.log(this,"Lenscast $version · ${Build.MANUFACTURER} ${Build.MODEL} · Android ${Build.VERSION.RELEASE} (${Build.VERSION.SDK_INT})")
   State.notificationsAllowed.value=getSystemService(NotificationManager::class.java).areNotificationsEnabled()
   State.backgroundAllowed.value=getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)
  }
