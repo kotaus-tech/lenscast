@@ -2,6 +2,9 @@ using System.Windows;
 namespace Lenscast;
 public partial class App : Application
 {
+ public App() {
+  AppDomain.CurrentDomain.UnhandledException += (_, args) => { if(args.ExceptionObject is Exception e) Log.Write("Ошибка инициализации приложения", e); };
+ }
  internal static bool IsSmokeTest => Environment.GetCommandLineArgs().Contains("--ci-smoke");
  protected override void OnStartup(StartupEventArgs e) {
   DispatcherUnhandledException += (_, args) => { Log.Write("Необработанная ошибка", args.Exception); if(IsSmokeTest) { args.Handled=true; Shutdown(1); return; } MessageBox.Show("Не удалось выполнить действие. Сохраните журнал в настройках и перезапустите Lenscast.", "Lenscast"); args.Handled = true; };

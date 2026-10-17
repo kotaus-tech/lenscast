@@ -29,9 +29,8 @@ jobs:
           gradle --no-daemon --write-locks :app:assembleRelease :app:lintRelease :app:testReleaseUnitTest
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose app/build/outputs/apk/release/app-release.apk
       - name: Манифест зависимостей Android
-        working-directory: android
-        run: |
-          python3 -c 'from pathlib import Path; print("::notice title=android-lock::" + Path("app/gradle.lockfile").read_text().replace("%", "%25").replace("\n", "%0A"))'
+        if: always()
+        run: python3 .github/scripts/ci_manifests.py
       - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
           name: Lenscast-Android
@@ -50,16 +49,12 @@ jobs:
       - name: Проверка запуска интерфейса WPF
         shell: pwsh
         run: |
-          $p = Start-Process artifacts/windows/Lenscast.exe -ArgumentList '--ci-smoke' -PassThru
+          $p = Start-Process artifacts/windows/Lenscast.exe -ArgumentList '--ci-smoke' -RedirectStandardError artifacts/smoke-stderr.txt -RedirectStandardOutput artifacts/smoke-stdout.txt -PassThru
           if (-not $p.WaitForExit(30000)) { $p.Kill(); throw 'Приложение не завершило проверку запуска' }
           if ($p.ExitCode -ne 0) { throw 'Ошибка загрузки интерфейса WPF' }
-      - name: Манифест зависимостей Windows
-        shell: pwsh
-        run: |
-          foreach ($file in @('windows/Lenscast/packages.lock.json','tests/Lenscast.Tests/packages.lock.json')) {
-            $text = (Get-Content $file -Raw).Replace('%','%25').Replace("`r",'%0D').Replace("`n",'%0A')
-            Write-Output "::notice title=${file}::$text"
-          }
+      - name: Манифесты и журнал запуска Windows
+        if: always()
+        run: python .github/scripts/ci_manifests.py
       - name: Компонент USB
         shell: pwsh
         run: |
