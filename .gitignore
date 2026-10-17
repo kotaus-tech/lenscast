@@ -1,0 +1,8 @@
+.arena/
+.gradle/
+**/build/
+**/bin/
+**/obj/
+local.properties
+*.user
+artifacts/
