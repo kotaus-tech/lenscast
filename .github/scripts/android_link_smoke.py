@@ -16,8 +16,8 @@ import threading
 import xml.etree.ElementTree as ET
 
 
-def adb(*args):
-    return subprocess.check_output(['adb', *args], timeout=30).decode('utf-8', 'replace')
+def adb(*args, timeout=30):
+    return subprocess.check_output(['adb', *args], timeout=timeout).decode('utf-8', 'replace')
 
 
 def ui():
@@ -55,7 +55,9 @@ def wait_type(stream, kind):
 
 
 def start(apk):
-    adb('install', '-r', apk)
+    # Cold AVD package installation can exceed 30 seconds under hosted-runner load.
+    # This is not a transport timeout; all other adb operations keep their limit.
+    adb('install', '-r', apk, timeout=120)
     sdk = int(adb('shell', 'getprop', 'ro.build.version.sdk').strip())
     if sdk >= 33:
         adb('shell', 'pm', 'grant', 'ru.lenscast', 'android.permission.POST_NOTIFICATIONS')
