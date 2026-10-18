@@ -26,12 +26,16 @@ jobs:
       - name: Сборка и проверка APK
         working-directory: android
         run: |
-          gradle --no-daemon :app:assembleRelease :app:lintRelease :app:testReleaseUnitTest
+          gradle --no-daemon :app:assembleRelease :app:lintRelease :app:testReleaseUnitTest :gesture-fixture:assembleRelease
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose app/build/outputs/apk/release/app-release.apk
       - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
           name: Lenscast-Android
           path: android/app/build/outputs/apk/release/app-release.apk
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: Lenscast-Gesture-Fixture
+          path: android/gesture-fixture/build/outputs/apk/release/gesture-fixture-release.apk
       - name: Исходный APK для проверки обновления старого ключа TLS
         run: |
           git fetch --no-tags --depth=1 origin 79578cda10df7677c871e28d2027b5bc281548ae
@@ -65,6 +69,10 @@ jobs:
         with:
           name: Lenscast-TLS-Upgrade-Fixture
           path: artifacts/android
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: Lenscast-Gesture-Fixture
+          path: artifacts/android
       - name: Доступ к аппаратной виртуализации
         run: sudo chmod 666 /dev/kvm
       - name: Настоящий Android-сервер, USB-loopback и TLS
@@ -76,7 +84,7 @@ jobs:
           profile: pixel_2
           ram-size: 2048M
           emulator-boot-timeout: 300
-          script: python3 .github/scripts/android_link_smoke.py artifacts/android/app-release.apk artifacts/android/tls-legacy.apk
+          script: python3 .github/scripts/android_link_smoke.py artifacts/android/app-release.apk artifacts/android/tls-legacy.apk artifacts/android/gesture-fixture-release.apk
       - name: Журнал Android при сбое
         if: failure()
         run: timeout 15s adb logcat -d -s Lenscast:I AndroidRuntime:E || true

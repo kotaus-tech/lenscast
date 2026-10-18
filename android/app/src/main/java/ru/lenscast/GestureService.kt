@@ -31,10 +31,14 @@ class GestureService: AccessibilityService() {
  private var nextX=0f; private var nextY=0f
  private var generation=0
  private var lastInput=0L
+ // No-op continued strokes produce no MotionEvents in Android and are cancelled
+ // WITHOUT an ACTION_UP. Keep the pointer down while idle; finish it only on up.
+ private val idleRelease=Runnable { if(down) finish() }
+ private fun armIdleRelease() { main.removeCallbacks(idleRelease); main.postDelayed(idleRelease,1500) }
  override fun onServiceConnected() { current=this; State.gesturesReady.value=true }
  override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
  override fun onInterrupt() { finish() }
- override fun onUnbind(intent: Intent?): Boolean { finish(); current=null; State.gesturesReady.value=false; return super.onUnbind(intent) }
+ override fun onUnbind(intent: Intent?): Boolean { main.removeCallbacks(idleRelease); finish(); current=null; State.gesturesReady.value=false; return super.onUnbind(intent) }
  private fun accept(m: JSONObject) {
   if(m.optString("type")=="navigation") {
    finish()
@@ -43,6 +47,7 @@ class GestureService: AccessibilityService() {
   }
   val action=m.optString("action")
   lastInput=android.os.SystemClock.elapsedRealtime()
+  armIdleRelease()
   if(action=="cancel") { finish(); return }
   val nx=m.optDouble("x",Double.NaN); val ny=m.optDouble("y",Double.NaN)
   if(!nx.isFinite() || !ny.isFinite() || nx !in 0.0..1.0 || ny !in 0.0..1.0) { finish(); return }
@@ -54,11 +59,12 @@ class GestureService: AccessibilityService() {
    "up"->{ down=false; if(!busy) pump() }
   }
  }
- private fun finish() { down=false; if(!busy) pump() }
+ private fun finish() { main.removeCallbacks(idleRelease); down=false; if(!busy) pump() }
  private fun pump() {
   if(down && android.os.SystemClock.elapsedRealtime()-lastInput>1500) down=false
   if(busy || (!down && stroke==null)) return
   val endX=nextX; val endY=nextY
+  if(!GestureDispatchPolicy.needsSegment(stroke!=null,down,x,y,endX,endY)) return
   val path=Path().apply { moveTo(x,y); lineTo(endX,endY) }
   val next=stroke?.continueStroke(path,0,16,down) ?: GestureDescription.StrokeDescription(path,0,16,down)
   val epoch=generation
@@ -67,10 +73,10 @@ class GestureService: AccessibilityService() {
    override fun onCompleted(description: GestureDescription) {
     if(epoch!=generation) return
     busy=false; stroke=if(next.willContinue()) next else null; x=endX; y=endY
-    if(down || stroke!=null) main.postDelayed({ pump() },8)
+    if(stroke!=null) main.post { pump() } else main.removeCallbacks(idleRelease)
    }
-   override fun onCancelled(description: GestureDescription) { generation++; busy=false; down=false; stroke=null }
+   override fun onCancelled(description: GestureDescription) { main.removeCallbacks(idleRelease); generation++; busy=false; down=false; stroke=null }
   },main)
-  if(!accepted) { generation++; busy=false; down=false; stroke=null }
+  if(!accepted) { main.removeCallbacks(idleRelease); generation++; busy=false; down=false; stroke=null }
  }
 }

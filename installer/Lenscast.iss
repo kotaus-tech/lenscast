@@ -1,4 +1,4 @@
-#define AppVersion "0.2.0"
+#define AppVersion "0.2.1"
 [Setup]
 AppId={{F0BDA95A-5FB1-4A16-AD03-3C2574D5D67B}
 AppName=Lenscast

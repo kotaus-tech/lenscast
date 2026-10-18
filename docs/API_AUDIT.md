@@ -180,3 +180,23 @@ SDK Android зафиксирован на 36; основание выбора п
 Android 16 SystemUI consent: официальный screen_share_dialog.xml содержит
 android:id/button1; ShareToAppPermissionDialogDelegate меняет текст по выбранному
 типу захвата. CI нажимает ID, не полагается на английский текст старого диалога.
+
+
+## Исправление обычного тапа · 0.2.1
+
+Официальный AOSP Android 16, не предположение о длительности StrokeDescription:
+- [MotionEventInjector.java](https://github.com/aosp-mirror/platform_frameworks_base/blob/android-16.0.0_r1/services/accessibility/java/com/android/server/accessibility/MotionEventInjector.java):
+  appendMoveEventIfNeeded создаёт MOVE только при изменении координат; продолжение
+  не создаёт DOWN, willContinue исключает UP. injectEventsMainThread при пустом
+  списке событий сообщает failure, не отпуская существующий палец. Поэтому нельзя
+  прокачивать неподвижный продолжаемый штрих каждые 8 мс.
+- [GestureDescription.java](https://github.com/aosp-mirror/platform_frameworks_base/blob/android-16.0.0_r1/core/java/android/accessibilityservice/GestureDescription.java):
+  StrokeDescription / continueStroke / willContinue, нулевой путь для тапа допустим.
+- [Handler.java](https://github.com/aosp-mirror/platform_frameworks_base/blob/android-16.0.0_r1/core/java/android/os/Handler.java):
+  postDelayed(Runnable,long), removeCallbacks(Runnable) — отдельный watchdog.
+- [View.java](https://github.com/aosp-mirror/platform_frameworks_base/blob/android-16.0.0_r1/core/java/android/view/View.java)
+  и [MotionEvent.java](https://github.com/aosp-mirror/platform_frameworks_base/blob/android-16.0.0_r1/core/java/android/view/MotionEvent.java):
+  setOnClickListener / setOnLongClickListener / setOnTouchListener,
+  getActionMasked / getEventTime / getDownTime, ACTION_DOWN/MOVE/UP/CANCEL.
+  Отдельная Java-цель CI передаёт touch стандартной Button (listener возвращает false),
+  считает реальные callback и события, не подменяет AccessibilityService.

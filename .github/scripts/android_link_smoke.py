@@ -221,7 +221,74 @@ def wait_pong(control, stamp):
     raise AssertionError('Управление не отвечает во время видеопотока')
 
 
-def screen_smoke(apk):
+def gesture_stats():
+    for node in ui().iter('node'):
+        text = node.get('text', '')
+        if text.startswith('Нажатий: '):
+            return tuple(map(int, re.findall(r'\d+', text)))
+    raise AssertionError('Не видны счётчики отдельной цели жестов')
+
+
+def gesture_regression(fixture):
+    adb('install', '-r', fixture, timeout=120)
+    adb('shell', 'am', 'start', '-W', '-n', 'ru.lenscast.gesturefixture/.TargetActivity')
+    root = ui()
+    target = next(n for n in root.iter('node') if n.get('text') == 'Область жеста')
+    x1, y1, x2, y2 = map(int, re.findall(r'\d+', target.get('bounds', '')))
+    size = re.search(r'Physical size: (\d+)x(\d+)', adb('shell', 'wm', 'size'))
+    assert size, 'Нет размеров дисплея цели'
+    width, height = map(int, size.groups())
+    x, y = ((x1+x2)/2)/(width-1), ((y1+y2)/2)/(height-1)
+
+    def touch(action, nx=x, ny=y):
+        send(control, dict(type='touch', action=action, x=nx, y=ny))
+
+    def settled():
+        send(control, dict(type='ping', sent=790))
+        wait_pong(control, 790)
+        time.sleep(0.15)
+        return gesture_stats()
+
+    with ControlSession() as control:
+        # The previous implementation cancelled a zero-distance continuation before UP.
+        touch('down'); time.sleep(0.08); touch('up')
+        clicks, holds, ups, moves, duration, active = settled()
+        assert clicks == 1 and holds == 0 and ups == 1 and active == 0 and duration < 500, 'Короткое нажатие не стало обычным тапом'
+        print('Пройдено: настоящий Android OnClick/ACTION_UP после короткого тапа, без OnLongClick')
+
+        touch('down')
+        for _ in range(6):
+            time.sleep(0.2); touch('move')  # Stationary desktop heartbeat must NOT cancel a stroke.
+        touch('up')
+        clicks, holds, ups, moves, duration, active = settled()
+        assert clicks == 1 and holds == 1 and ups == 2 and active == 0 and duration >= 800, 'Удержание или отпускание сломано'
+        print('Пройдено: неподвижное удержание и heartbeat дают один OnLongClick и реальный ACTION_UP')
+
+        touch('down'); time.sleep(0.05)
+        for i in range(1, 6):
+            touch('move', x+i*0.02, y); time.sleep(0.04)
+        touch('up', x+0.1, y)
+        stats = settled()
+        assert stats[2] == 3 and stats[3] > 0 and stats[5] == 0, 'Продолжаемое перетаскивание не отпустило палец'
+        baseline_clicks, baseline_holds = stats[0:2]
+
+        touch('down'); time.sleep(2.0)  # Control pings continue, pointer heartbeat does not.
+        stats = settled()
+        assert stats[2] == 4 and stats[5] == 0 and stats[1] == baseline_holds+1, 'Таймер безопасности не отпустил неподвижный жест'
+        touch('down'); time.sleep(0.08); touch('up')
+        stats = settled()
+        assert stats[0] == baseline_clicks+1 and stats[2] == 5 and stats[5] == 0, 'Тап после безопасного отпускания не работает'
+        print('Пройдено: живой drag, отпускание по watchdog и следующий тап')
+        touch('down'); time.sleep(0.08)
+        # Closing the real control socket must finish the outstanding stroke.
+    time.sleep(0.25)
+    stats = gesture_stats()
+    assert stats[2] == 6 and stats[5] == 0, 'Разрыв управляющего сокета оставил палец нажатым'
+    print('Пройдено: разрыв управления отпускает настоящий палец Android')
+    adb('shell', 'am', 'start', '-W', '-n', 'ru.lenscast/.MainActivity')
+
+
+def screen_smoke(apk, fixture):
     start(apk)
     adb('shell', 'settings', 'put', 'secure', 'enabled_accessibility_services', 'ru.lenscast/ru.lenscast.GestureService')
     adb('shell', 'settings', 'put', 'secure', 'accessibility_enabled', '1')
@@ -243,6 +310,7 @@ def screen_smoke(apk):
         if any(n.get('text', '').startswith('Экран передаётся') for n in root.iter('node')):
             break
         time.sleep(1)
+    gesture_regression(fixture)
     with ControlSession() as control:
         ready = control.ready
         ticket = ready.get('videoTicket', '')
@@ -284,7 +352,7 @@ def screen_smoke(apk):
 
 
 def main():
-    apk, legacy = sys.argv[1:3]
+    apk, legacy, fixture = sys.argv[1:4]
     remembered = exercise(apk)
     # Real package update must keep an already-compatible identity and its trust.
     exercise(apk, remembered=remembered, tls12=True)
@@ -301,7 +369,7 @@ def main():
         raise AssertionError('Контрольный старый APK неожиданно прошёл TLS')
     exercise(apk)  # No uninstall/data reset: migration must repair the old key.
     print('Пройдено: обновление поверх старого APK исправляет TLS без удаления данных')
-    screen_smoke(apk)
+    screen_smoke(apk, fixture)
 
 
 if __name__ == '__main__':
