@@ -200,3 +200,8 @@ android:id/button1; ShareToAppPermissionDialogDelegate меняет текст �
   getActionMasked / getEventTime / getDownTime, ACTION_DOWN/MOVE/UP/CANCEL.
   Отдельная Java-цель CI передаёт touch стандартной Button (listener возвращает false),
   считает реальные callback и события, не подменяет AccessibilityService.
+
+Цель CI: View.setId(int) и сгенерированный R.id.gesture_target. UIAutomator ищет
+resource-id, не текст с AllCaps. AOSP TextView.getTextForAccessibility возвращает
+mTransformed, а не исходный mText:
+https://github.com/aosp-mirror/platform_frameworks_base/blob/android-16.0.0_r1/core/java/android/widget/TextView.java

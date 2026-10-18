@@ -233,7 +233,8 @@ def gesture_regression(fixture):
     adb('install', '-r', fixture, timeout=120)
     adb('shell', 'am', 'start', '-W', '-n', 'ru.lenscast.gesturefixture/.TargetActivity')
     root = ui()
-    target = next(n for n in root.iter('node') if n.get('text') == 'Область жеста')
+    target = next((n for n in root.iter('node') if n.get('resource-id') == 'ru.lenscast.gesturefixture:id/gesture_target'), None)
+    assert target is not None, 'Не найдена кнопка отдельной цели жестов по resource-id'
     x1, y1, x2, y2 = map(int, re.findall(r'\d+', target.get('bounds', '')))
     size = re.search(r'Physical size: (\d+)x(\d+)', adb('shell', 'wm', 'size'))
     assert size, 'Нет размеров дисплея цели'

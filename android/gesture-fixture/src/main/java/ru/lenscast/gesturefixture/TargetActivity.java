@@ -17,7 +17,7 @@ public final class TargetActivity extends Activity {
   super.onCreate(saved);
   LinearLayout root=new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL);
   stats=new TextView(this); stats.setTextSize(20); root.addView(stats);
-  Button target=new Button(this); target.setText("Область жеста");
+  Button target=new Button(this); target.setId(R.id.gesture_target); target.setText("Область жеста");
   root.addView(target,new LinearLayout.LayoutParams(-1,0,1));
   target.setOnClickListener(v->{ clicks++; update(); });
   target.setOnLongClickListener(v->{ holds++; update(); return true; });
