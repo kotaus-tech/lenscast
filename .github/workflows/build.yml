@@ -64,7 +64,7 @@ jobs:
           script: python3 .github/scripts/android_link_smoke.py artifacts/android/app-release.apk
       - name: Журнал Android при сбое
         if: failure()
-        run: adb logcat -d -s AndroidRuntime:E || true
+        run: timeout 15s adb logcat -d -s Lenscast:I AndroidRuntime:E || true
   windows:
     runs-on: windows-2022
     steps:

@@ -18,6 +18,7 @@ object State {
  val mode = mutableStateOf("Экран")
  val telemetry = mutableStateOf("Состояние телефона появится после запуска")
  @Synchronized fun log(c: Context, text: String, error: Throwable? = null) {
+  if(error==null) android.util.Log.i("Lenscast",text) else android.util.Log.e("Lenscast",text,error)
   runCatching {
   val f = c.filesDir.resolve("журнал.txt")
   if (f.length() > 2_000_000) f.writeText("")

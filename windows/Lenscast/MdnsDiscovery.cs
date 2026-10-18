@@ -66,7 +66,7 @@ internal static class MdnsDiscovery {
     var reply=await (ready==legacyRead ? legacyRead : sharedRead!);
     if(ready==legacyRead) legacyRead=legacy.ReceiveAsync(token).AsTask();
     else sharedRead=shared!.ReceiveAsync(token).AsTask();
-    if(reply.RemoteEndPoint.Port!=destination.Port) continue;
+    if(reply.RemoteEndPoint.Port!=destination.Port || reply.Buffer.Length<12 || (reply.Buffer[2]&128)==0) continue;
     packets++;
     Discovery.Parse(reply.Buffer,names,hosts);
     await RequestMissing();
