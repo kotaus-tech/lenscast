@@ -6,6 +6,7 @@ import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.net.wifi.WifiManager
 import android.os.*
+import android.security.keystore.KeyInfo
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import org.json.JSONObject
@@ -92,15 +93,31 @@ class LinkService : Service() {
  @Synchronized private fun newCode() { State.code.value = "%06d".format(Locale.ROOT, random.nextInt(1_000_000)); codeExpires = SystemClock.elapsedRealtime() + 180_000 }
  private fun tls(): SSLContext {
   val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-  if (!ks.containsAlias("lenscast")) {
+  val existing = ks.getKey("lenscast", null) as PrivateKey?
+  val replace = existing?.let {
+   val info = KeyFactory.getInstance("RSA", "AndroidKeyStore").getKeySpec(it, KeyInfo::class.java)
+   // Conscrypt signs an already-computed digest via a private-key RSA Cipher.
+   // PKCS#1 needs DIGEST_NONE; raw RSA for PSS also needs NoPadding.
+   KeyProperties.DIGEST_NONE !in info.digests ||
+    KeyProperties.ENCRYPTION_PADDING_NONE !in info.encryptionPaddings ||
+    KeyProperties.SIGNATURE_PADDING_RSA_PKCS1 !in info.signaturePaddings
+  } ?: false
+  if (existing == null || replace) {
    val generator = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_RSA, "AndroidKeyStore")
    generator.initialize(KeyGenParameterSpec.Builder("lenscast", KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY)
-    .setKeySize(2048).setDigests(KeyProperties.DIGEST_SHA256, KeyProperties.DIGEST_SHA512)
-    .setSignaturePaddings(KeyProperties.SIGNATURE_PADDING_RSA_PKCS1)
+    .setKeySize(2048).setDigests(KeyProperties.DIGEST_NONE, KeyProperties.DIGEST_SHA256, KeyProperties.DIGEST_SHA384, KeyProperties.DIGEST_SHA512)
+    .setSignaturePaddings(KeyProperties.SIGNATURE_PADDING_RSA_PKCS1, KeyProperties.SIGNATURE_PADDING_RSA_PSS)
+    .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
     .setCertificateSubject(X500Principal("CN=Lenscast"))
     .setCertificateSerialNumber(BigInteger(128, random)).setCertificateNotBefore(Date(0))
     .setCertificateNotAfter(Date(4102444800000L)).build())
+   // AndroidKeyStore replaces the alias; immutable legacy authorizations cannot
+   // be amended. Do not replace a compatible key on subsequent launches.
    generator.generateKeyPair()
+   if (replace) {
+    check(prefs.edit().remove("tokenHash").commit()) { "Не удалось сбросить старое доверие" }
+    State.log(this, "Старый ключ TLS обновлён. На ПК нажмите «Забыть телефон» и подключитесь по коду.")
+   }
   }
   val km = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm()).apply { init(ks, null) }
   return SSLContext.getInstance("TLSv1.2").apply { init(km.keyManagers, null, random) }

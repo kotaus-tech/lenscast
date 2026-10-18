@@ -53,8 +53,8 @@ def wait_type(stream, kind):
     raise AssertionError('Ожидаемый ответ не получен')
 
 
-def main():
-    adb('install', '-r', sys.argv[1])
+def start(apk):
+    adb('install', '-r', apk)
     sdk = int(adb('shell', 'getprop', 'ro.build.version.sdk').strip())
     if sdk >= 33:
         adb('shell', 'pm', 'grant', 'ru.lenscast', 'android.permission.POST_NOTIFICATIONS')
@@ -82,7 +82,20 @@ def main():
     assert code, 'Служба не подготовила Wi-Fi: проверьте журнал AndroidRuntime'
     adb('forward', 'tcp:27185', 'tcp:27185')
     adb('forward', 'tcp:27183', 'tcp:27183')
+    return sdk, code
 
+
+def tls_context(tls12=False):
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE  # First pairing is confirmed using the on-screen code.
+    if tls12:
+        context.minimum_version = context.maximum_version = ssl.TLSVersion.TLSv1_2
+    return context
+
+
+def exercise(apk, remembered=None, tls12=False):
+    sdk, code = start(apk)
     with socket.create_connection(('127.0.0.1', 27185), timeout=8) as usb:
         usb.settimeout(8)
         send(usb, dict(type='hello', version=1, code='', token=''))
@@ -92,21 +105,30 @@ def main():
         assert wait_type(usb, 'pong')['sent'] == 123, 'Команды USB не принимаются'
     print(f'Пройдено: Android {sdk}, foreground service, loopback USB, телеметрия и команды')
 
-    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-    context.check_hostname = False
-    context.verify_mode = ssl.CERT_NONE  # First pairing is confirmed using the on-screen code.
+    context = tls_context(tls12)
     time.sleep(1)
+    if remembered is None:
+        for wrong in [dict(code='000000' if code != '000000' else '000001', token=''),
+                      dict(code='', token='f' * 64)]:
+            with socket.create_connection(('127.0.0.1', 27183), timeout=8) as tcp:
+                with context.wrap_socket(tcp, server_hostname='Lenscast') as tls:
+                    send(tls, dict(type='hello', version=1, **wrong))
+                    assert read(tls).get('type') == 'pairing', 'TLS позволил обойти сопряжение'
+        print('Пройдено: неверные код и токен не дают доступа после TLS-рукопожатия')
     with socket.create_connection(('127.0.0.1', 27183), timeout=8) as tcp:
         with context.wrap_socket(tcp, server_hostname='Lenscast') as tls:
+            negotiated = tls.version()
             fingerprint = hashlib.sha256(tls.getpeercert(binary_form=True)).digest()
-            send(tls, dict(type='hello', version=1, code=code, token=''))
+            if remembered:
+                assert fingerprint == remembered[0], 'Обновление совместимого ключа изменило сертификат'
+            send(tls, dict(type='hello', version=1, code='' if remembered else code, token=remembered[1] if remembered else ''))
             ready = read(tls)
             assert ready.get('type') == 'ready', 'Первое TLS-сопряжение не выполнено'
-            token = ready.get('token', '')
+            token = remembered[1] if remembered else ready.get('token', '')
             assert len(token) == 64, 'Телефон не выдал токен'
             send(tls, dict(type='ping', sent=456))
             assert wait_type(tls, 'pong')['sent'] == 456, 'TLS-команды не принимаются'
-    print('Пройдено: AndroidKeyStore, TLS и сопряжение по коду')
+    print('Пройдено: AndroidKeyStore, ' + negotiated + ' и доверенное подключение')
     time.sleep(1)
     with socket.create_connection(('127.0.0.1', 27183), timeout=8) as tcp:
         with context.wrap_socket(tcp, server_hostname='Lenscast') as tls:
@@ -115,6 +137,28 @@ def main():
             assert read(tls).get('type') == 'ready', 'Токен не принят после переподключения'
             send(tls, dict(type='stop'))
     print('Пройдено: повторное TLS-сопряжение без кода и команда остановки')
+    return fingerprint, token
+
+
+def main():
+    apk, legacy = sys.argv[1:3]
+    remembered = exercise(apk)
+    # Real package update must keep an already-compatible identity and its trust.
+    exercise(apk, remembered=remembered, tls12=True)
+    print('Пройдено: обновление APK сохраняет сертификат и токен; TLS 1.2 работает')
+    adb('uninstall', 'ru.lenscast')
+    start(legacy)  # Generate the original immutable key under the application's UID.
+    try:
+        with socket.create_connection(('127.0.0.1', 27183), timeout=8) as tcp:
+            with tls_context().wrap_socket(tcp, server_hostname='Lenscast'):
+                pass
+    except ssl.SSLError:
+        print('Воспроизведено: исходный APK со старыми разрешениями ключа обрывает TLS')
+    else:
+        raise AssertionError('Контрольный старый APK неожиданно прошёл TLS')
+    exercise(apk)  # No uninstall/data reset: migration must repair the old key.
+    print('Пройдено: обновление поверх старого APK исправляет TLS без удаления данных')
+
 
 if __name__ == '__main__':
     try:

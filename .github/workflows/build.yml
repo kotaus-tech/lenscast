@@ -32,6 +32,17 @@ jobs:
         with:
           name: Lenscast-Android
           path: android/app/build/outputs/apk/release/app-release.apk
+      - name: Исходный APK для проверки обновления старого ключа TLS
+        run: |
+          git fetch --no-tags --depth=1 origin 79578cda10df7677c871e28d2027b5bc281548ae
+          mkdir -p "$RUNNER_TEMP/tls-legacy" artifacts
+          git archive 79578cda10df7677c871e28d2027b5bc281548ae android | tar -x -C "$RUNNER_TEMP/tls-legacy"
+          gradle --no-daemon -p "$RUNNER_TEMP/tls-legacy/android" :app:assembleRelease
+          cp "$RUNNER_TEMP/tls-legacy/android/app/build/outputs/apk/release/app-release.apk" artifacts/tls-legacy.apk
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: Lenscast-TLS-Upgrade-Fixture
+          path: artifacts/tls-legacy.apk
   android-link:
     needs: android
     runs-on: ubuntu-24.04
@@ -50,6 +61,10 @@ jobs:
         with:
           name: Lenscast-Android
           path: artifacts/android
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: Lenscast-TLS-Upgrade-Fixture
+          path: artifacts/android
       - name: Доступ к аппаратной виртуализации
         run: sudo chmod 666 /dev/kvm
       - name: Настоящий Android-сервер, USB-loopback и TLS
@@ -61,7 +76,7 @@ jobs:
           profile: pixel_2
           ram-size: 2048M
           emulator-boot-timeout: 300
-          script: python3 .github/scripts/android_link_smoke.py artifacts/android/app-release.apk
+          script: python3 .github/scripts/android_link_smoke.py artifacts/android/app-release.apk artifacts/android/tls-legacy.apk
       - name: Журнал Android при сбое
         if: failure()
         run: timeout 15s adb logcat -d -s Lenscast:I AndroidRuntime:E || true

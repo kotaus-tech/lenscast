@@ -85,3 +85,30 @@ SDK Android зафиксирован на 36; основание выбора п
   api-level/target/arch/profile/script сверены с action.yml android-emulator-runner
   v2; action закреплён SHA. Скрипт проверяет FGS, KeyStore/TLS, код и токен без
   вывода секретов. Эмулятор не доказывает работу OEM USB-драйвера или реального mDNS.
+
+### Отдельный цикл TLS · 0.1.2
+
+- AOSP Android 11 `KeyGenParameterSpec.Builder.setDigests`: для TLS прямо требуется
+  `DIGEST_NONE`, поскольку стек вычисляет хеш самостоятельно. Это разрешение
+  операции ключа, не отключение хеширования в протоколе.
+  https://github.com/aosp-mirror/platform_frameworks_base/blob/android-11.0.0_r1/keystore/java/android/security/keystore/KeyGenParameterSpec.java
+- Официальный Conscrypt `CryptoUpcalls.rsaSignDigestWithPrivateKey` делегирует
+  подписание через Cipher.ENCRYPT_MODE + приватный RSA, PKCS1Padding/NoPadding.
+  https://github.com/google/conscrypt/blob/2.5.2/common/src/main/java/org/conscrypt/CryptoUpcalls.java
+- AOSP `AndroidKeyStoreRSACipherSpi`: приватный ENCRYPT_MODE переводится в
+  PURPOSE_SIGN; PKCS1Padding — в подпись PKCS#1, NoPadding — в raw RSA. Для обоих
+  явно добавляется KM_DIGEST_NONE. Для PSS Conscrypt использует raw RSA; требуется
+  ENCRYPTION_PADDING_NONE, но PURPOSE_DECRYPT/PURPOSE_ENCRYPT не выдаются.
+  https://github.com/aosp-mirror/platform_frameworks_base/blob/android-11.0.0_r1/keystore/java/android/security/keystore/AndroidKeyStoreRSACipherSpi.java
+- `KeyInfo.getDigests/getEncryptionPaddings/getSignaturePaddings`,
+  `KeyFactory.getInstance("RSA", "AndroidKeyStore").getKeySpec(privateKey, KeyInfo.class)`
+  и константы DIGEST_NONE/SHA384, SIGNATURE_PADDING_RSA_PSS,
+  ENCRYPTION_PADDING_NONE проверены по KeyInfo.java, KeyProperties.java и
+  AndroidKeyStoreKeyFactorySpi.java в той же версии AOSP.
+- `AndroidKeyStoreKeyPairGeneratorSpi.generateKeyPair` заменяет существующий alias;
+  разрешения старого ключа неизменяемы. Замена только несовместимого ключа;
+  проверка сертификата ПК не меняется. Это намеренно требует нового сопряжения
+  для старого несовместимого ключа.
+- CPython 3.12 Lib/ssl.py: SSLContext.minimum_version/maximum_version,
+  TLSVersion.TLSv1_2 и SSLSocket.version проверены по официальному исходнику.
+  Принудительный TLS 1.2 — дополнительная проверка, не замена штатной negotiation.
