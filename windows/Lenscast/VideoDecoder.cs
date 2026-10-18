@@ -53,9 +53,9 @@ internal sealed unsafe class VideoDecoder:IDisposable {
    Check(MFStartup(0x20070,0)); mf=true;
    if(codec==1) Check(CoCreateInstance(DecoderClsid,0,1,TransformIid,out transform));
    else {
-    var input=new Registration {Major=Video,Subtype=new Guid("43564548-0000-0010-8000-00aa00389b71")};
-    var output=new Registration {Major=Video,Subtype=Nv12};
-    Check(MFTEnumEx(new Guid("d6c02d4b-6833-45b4-971a-05a4b04bab91"),0x51,input,output,out var activations,out var count));
+    var inputRegistration=new Registration {Major=Video,Subtype=new Guid("43564548-0000-0010-8000-00aa00389b71")};
+    var outputRegistration=new Registration {Major=Video,Subtype=Nv12};
+    Check(MFTEnumEx(new Guid("d6c02d4b-6833-45b4-971a-05a4b04bab91"),0x51,inputRegistration,outputRegistration,out var activations,out var count));
     try {
      if(count==0) throw new NotSupportedException("Декодировщик HEVC не установлен");
      for(int i=0;i<count && transform==0;i++) {
