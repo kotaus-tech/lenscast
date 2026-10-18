@@ -35,6 +35,7 @@ class LinkService : Service() {
  private var attempts = 0
  private var blockedUntil = 0L
  private var codeExpires = 0L
+ private var telemetryAt=0L; private var telemetryFrames=0L; private var telemetryBytes=0L
  private val prefs by lazy { getSharedPreferences("pairing", MODE_PRIVATE) }
  override fun onBind(intent: Intent?) = null
  override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -56,11 +57,17 @@ class LinkService : Service() {
     if (!alive.get()) return@execute
     // USB does not depend on the AndroidKeyStore/TLS initialization succeeding.
     listen(ServerSocket(27185, 4, InetAddress.getByName("127.0.0.1")), true)
+    val usbVideo=ServerSocket(27186,4,InetAddress.getByName("127.0.0.1"))
+    listeners.add(usbVideo)
+    VideoHub.serve(usbVideo,true,{ pool.execute(it) },{ State.log(this,"Видеоканал USB завершён",it) })
     State.log(this,"USB: сервер слушает только 127.0.0.1:27185")
     try {
      val context=tls()
      if (!alive.get()) return@execute
      listen(context.serverSocketFactory.createServerSocket(27183), false)
+     val wifiVideo=context.serverSocketFactory.createServerSocket(27184)
+     listeners.add(wifiVideo)
+     VideoHub.serve(wifiVideo,false,{ pool.execute(it) },{ State.log(this,"Видеоканал Wi-Fi завершён",it) })
      State.wifiReady.value=true
      newCode()
      State.log(this,"Wi-Fi: сервер TLS слушает порт 27183")
@@ -144,6 +151,7 @@ class LinkService : Service() {
  private fun send(out: DataOutputStream, obj: JSONObject) = Framing.write(out, obj.toString().toByteArray(Charsets.UTF_8))
  private fun handle(s: Socket, usb: Boolean) {
   var owns = false
+  var videoTicket=""
   try {
    val input = DataInputStream(s.getInputStream()); val output = DataOutputStream(s.getOutputStream())
    val hello = read(input, s) ?: return
@@ -151,7 +159,9 @@ class LinkService : Service() {
    if (!usb && !authenticate(hello, output)) return
    if (!occupied.compareAndSet(false, true)) { send(output, JSONObject().put("type", "error").put("message", "Телефон уже подключён. Отключите другое соединение.")); return }
    owns = true
-   val reply = JSONObject().put("type", "ready").put("version", 1).put("name", Build.MODEL).put("mode", State.mode.value)
+   videoTicket=ByteArray(32).also { random.nextBytes(it) }.joinToString("") { "%02x".format(it.toInt() and 255) }
+   VideoHub.session(videoTicket,usb)
+   val reply = JSONObject().put("type", "ready").put("version", 1).put("name", Build.MODEL).put("mode", State.mode.value).put("videoTicket",videoTicket)
    if (!usb && hello.optString("token").isEmpty()) {
     val token = ByteArray(32).also { random.nextBytes(it) }.joinToString("") { "%02x".format(it.toInt() and 255) }
     check(prefs.edit().putString("tokenHash", hash(token)).commit()) { "Не удалось сохранить доверие" }; reply.put("token", token); newCode()
@@ -172,12 +182,17 @@ class LinkService : Service() {
     lastCommand = SystemClock.elapsedRealtime()
     when (m.optString("type")) {
      "ping" -> send(output, JSONObject().put("type", "pong").put("sent", m.optLong("sent")).put("phoneUs", SystemClock.elapsedRealtimeNanos()/1000))
+     "videoCodec" -> ScreenService.preferCodec(m.optInt("codec",1))
+     "keyframe" -> VideoHub.requestKey?.invoke()
+     "touch", "navigation" -> if(!State.screenRunning.value || !GestureService.command(m)) {
+      send(output,JSONObject().put("type","notice").put("message","Разрешите показ экрана и включите «Lenscast · управление» в специальных возможностях телефона."))
+     }
      "stop" -> { Handler(Looper.getMainLooper()).post { stopSelf() }; return }
      "forget" -> { prefs.edit().remove("tokenHash").commit(); newCode(); return }
     }
    }
   } catch (e: Exception) { if (alive.get()) State.log(this, "Соединение завершено", e) }
-  finally { clients.remove(s); runCatching { s.close() }; if (owns) { occupied.set(false); if (alive.get()) updateStatus("Связь прервана · ожидание ПК") } }
+  finally { clients.remove(s); runCatching { s.close() }; if (owns) { VideoHub.end(videoTicket); GestureService.release(); occupied.set(false); if (alive.get()) updateStatus("Связь прервана · ожидание ПК") } }
  }
  @Synchronized private fun authenticate(h: JSONObject, out: DataOutputStream): Boolean {
   val now = SystemClock.elapsedRealtime()
@@ -194,6 +209,12 @@ class LinkService : Service() {
  }
  private fun hash(s: String) = MessageDigest.getInstance("SHA-256").digest(s.toByteArray()).joinToString("") { "%02x".format(it.toInt() and 255) }
  private fun telemetry(usb: Boolean): JSONObject {
+  VideoHub.checkHealth()
+  val now=SystemClock.elapsedRealtime(); val elapsed=(now-telemetryAt).coerceAtLeast(1)
+  val count=VideoHub.frames; val size=VideoHub.bytes
+  val fps=if(telemetryAt==0L || !State.screenRunning.value) 0 else ((count-telemetryFrames)*1000/elapsed).toInt()
+  val bitrate=if(telemetryAt==0L || !State.screenRunning.value) 0 else (size-telemetryBytes)*8000/elapsed
+  telemetryAt=now; telemetryFrames=count; telemetryBytes=size
   val b = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
   val level = b?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
   val scale = b?.getIntExtra(BatteryManager.EXTRA_SCALE, 100) ?: 100
@@ -205,7 +226,7 @@ class LinkService : Service() {
    .put("charging", status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL)
    .put("temperature", (b?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0) ?: 0)/10.0)
    .put("thermal", getSystemService(PowerManager::class.java).currentThermalStatus)
-   .put("network", band).put("rssi", if (usb) 0 else info.rssi).put("fps", 0).put("bitrate", 0).put("dropped", 0)
+   .put("network", band).put("rssi", if (usb) 0 else info.rssi).put("fps", fps).put("bitrate", bitrate).put("dropped", VideoHub.dropped).put("screen",State.screenRunning.value).put("gestures",State.gesturesReady.value)
  }
  private fun advertise() {
   nsd = getSystemService(NsdManager::class.java)
@@ -237,6 +258,7 @@ class LinkService : Service() {
    registration?.let { runCatching { nsd?.unregisterService(it) } }
   }
   pool.shutdownNow()
+  stopService(Intent(this,ScreenService::class.java)); GestureService.release()
   State.wifiReady.value=false; State.discoveryWarning.value=""; State.running.value = false; State.code.value = ""; State.status.value = failure ?: "Связь остановлена"
   State.log(this, "Сервер остановлен"); super.onDestroy()
  }

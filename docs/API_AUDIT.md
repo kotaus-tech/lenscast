@@ -112,3 +112,63 @@ SDK Android зафиксирован на 36; основание выбора п
 - CPython 3.12 Lib/ssl.py: SSLContext.minimum_version/maximum_version,
   TLSVersion.TLSv1_2 и SSLSocket.version проверены по официальному исходнику.
   Принудительный TLS 1.2 — дополнительная проверка, не замена штатной negotiation.
+
+## Блок B · экран (0.2.0)
+
+Официальные источники, прочитанные при реализации (копии SDK — временно .arena/b-sdk):
+
+- Android Developers Media projection: пример registerForActivityResult /
+  createScreenCaptureIntent / foreground service / getMediaProjection /
+  registerCallback / createVirtualDisplay. Один токен — один display; при
+  изменении геометрии resize/setSurface, не повторный createVirtualDisplay.
+  https://developer.android.com/media/grow/media-projection
+- Реальные сигнатуры AOSP android-16.0.0_r1: MediaProjection.java,
+  MediaProjectionManager.java, MediaProjectionConfig.java (createConfigForDefaultDisplay,
+  API 34 guard), VirtualDisplay.java, Display.java. Начальные размеры —
+  WindowManager.maximumWindowMetrics.bounds, minSdk 30.
+  https://github.com/aosp-mirror/platform_frameworks_base/tree/android-16.0.0_r1
+- AOSP MediaCodec.java / MediaCodecInfo.java / MediaFormat.java: configure,
+  createInputSurface, start/stop/release, dequeueOutputBuffer/BufferInfo,
+  getOutputBuffer/releaseOutputBuffer/outputFormat, INFO_OUTPUT_FORMAT_CHANGED,
+  BUFFER_FLAG_CODEC_CONFIG/KEY_FRAME, PARAMETER_KEY_REQUEST_SYNC_FRAME,
+  CodecCapabilities.COLOR_FormatSurface, isHardwareAccelerated, videoCapabilities,
+  width/heightAlignment, isSizeSupported, areSizeAndRateSupported, bitrateRange.
+  KEY_BIT_RATE/FRAME_RATE/I_FRAME_INTERVAL/MAX_B_FRAMES/REPEAT_PREVIOUS_FRAME_AFTER/
+  MAX_FPS_TO_ENCODER/COLOR_STANDARD/COLOR_RANGE и BT709/LIMITED сверены в исходнике.
+- AOSP AccessibilityService.java/GestureDescription.java: dispatchGesture,
+  GestureResultCallback, StrokeDescription(path,startTime,duration,willContinue),
+  continueStroke/willContinue и GLOBAL_ACTION_BACK/HOME/RECENTS. Продолжение
+  начинается точно в конце предыдущего stroke; координаты следующего сегмента
+  фиксируются до callback. XML canPerformGestures=true, canRetrieveWindowContent=false.
+- Microsoft H.264 decoder: вход MFMediaType_Video/MFVideoFormat_H264; NV12 output;
+  ProcessInput/ProcessOutput, NEED_MORE_INPUT/STREAM_CHANGE, GetOutputAvailableType.
+  https://learn.microsoft.com/windows/win32/medfound/h-264-video-decoder
+- Официальный Decoder/BufferLock.h sample: QueryInterface IMF2DBuffer прежде
+  обычного IMFMediaBuffer; stride и времена жизни COM. Для плотного NV12 здесь
+  используется IMF2DBuffer.GetContiguousLength/ContiguousCopyTo; fallback Lock/Unlock.
+  https://github.com/microsoft/Windows-classic-samples/tree/main/Samples/Win7Samples/multimedia/mediafoundation/Decoder
+- Direct3D 11 decoding: DXGI Device Manager, MF_SA_D3D11_AWARE,
+  MFT_MESSAGE_SET_D3D_MANAGER, ID3D10Multithread.SetMultithreadProtected.
+  https://learn.microsoft.com/windows/win32/medfound/supporting-direct3d-11-video-decoding-in-media-foundation
+- Каждый используемый native GUID, слот vtable и сигнатура сверены с официальными
+  WinSDK mfapi.h/mfobjects.h/mftransform.h/wmcodecdsp.h/Mferror.h/d3d10.h/d3d11.h:
+  CoCreateInstance(CLSID_CMSH264DecoderMFT, IID_IMFTransform), MFStartup/Shutdown,
+  MFCreateMediaType/Sample/MemoryBuffer/AlignedMemoryBuffer/DXGIDeviceManager,
+  D3D11CreateDevice, IMFDXGIDeviceManager.ResetDevice; IMFAttributes Get/SetUINT32,
+  Get/SetUINT64, Get/SetGUID; IMFSample GetBufferByIndex/AddBuffer/Get/SetSampleTime/
+  SetSampleDuration; IMFMediaBuffer Lock/Unlock/SetCurrentLength; IMFTransform
+  GetAttributes/GetOutputStreamInfo/GetOutputAvailableType/SetInputType/SetOutputType/
+  ProcessMessage/ProcessInput/ProcessOutput. x64 MFT_OUTPUT_DATA_BUFFER использует
+  стандартное выравнивание указателей, не pack=1. MF_E_NOTACCEPTING=0xC00D36B5.
+  https://github.com/microsoft/win32metadata/tree/main/generation/WinSDK/RecompiledIdlHeaders/um
+- HEVC: тот же SDK MFTEnumEx, MFT_REGISTER_TYPE_INFO, MFT_CATEGORY_VIDEO_DECODER,
+  флаги SYNCMFT|LOCALMFT|SORTANDFILTER, IMFActivate.ActivateObject, MFVideoFormat_HEVC.
+  Все IMFActivate освобождаются, массив — CoTaskMemFree. Отсутствие codec extension
+  не ошибка установки: обязательный AVC остаётся доступен.
+- C# интерфейсы не создаются по догадке: узкий unsafe interop использует только
+  проверенные SDK-слоты; результат проверяется настоящим MFT на двух синтетических
+  Annex B, а не только компиляцией. Новый сторонний/native runtime не поставляется.
+
+Ограничения: AVD не подтверждает драйвер GPU/OEM, 30+ минут и штатную камеру.
+Надпись DXVA — запрос D3D-пути, не доказательство аппаратного выполнения каждого
+кадра. Для отказа аппаратного пути предусмотрен новый software MFT и запрос IDR.

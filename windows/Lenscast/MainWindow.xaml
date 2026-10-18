@@ -15,10 +15,14 @@
    <TextBlock Text="Адрес телефона · код первого подключения" Foreground="#9A9AA8"/></StackPanel></Border>
    <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="Защищённое подключение" FontSize="20"/><TextBlock Text="По Wi-Fi код нужен только один раз. По USB подтвердите отладку на телефоне. Одновременно подключается один телефон."/><Button Content="Отключиться" Click="Disconnect_Click" HorizontalAlignment="Left"/></StackPanel></Border>
   </StackPanel></ScrollViewer></TabItem>
-  <TabItem Header="Экран"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="0,20,8,0"><Border Style="{StaticResource Card}" MinHeight="300"><StackPanel VerticalAlignment="Center"><TextBlock Text="Экран телефона" FontSize="28" HorizontalAlignment="Center"/><TextBlock Text="Передача изображения пока недоступна в этой сборке." Foreground="#9A9AA8" HorizontalAlignment="Center"/></StackPanel></Border>
-  <Border Style="{StaticResource Card}"><WrapPanel IsEnabled="False"><Button Content="Назад"/><Button Content="Домой"/><Button Content="Недавние"/><Button Content="Полный экран"/><CheckBox Content="Поверх окон" VerticalAlignment="Center"/></WrapPanel></Border>
-  <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="Состояние телефона" FontSize="20"/><TextBlock x:Name="ScreenTelemetry" Text="Подключите телефон"/><Button Content="Остановить на телефоне" Click="Stop_Click" HorizontalAlignment="Left"/></StackPanel></Border>
-  </StackPanel></ScrollViewer></TabItem>
+  <TabItem Header="Экран"><Grid Margin="0,16,0,0"><Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+   <Border Background="#17171C" BorderBrush="#2A2A33" BorderThickness="1" CornerRadius="12" ClipToBounds="True">
+    <Grid><Image x:Name="Preview" Stretch="Uniform" MouseLeftButtonDown="Preview_Down" MouseMove="Preview_Move" MouseLeftButtonUp="Preview_Up" LostMouseCapture="Preview_Lost" MouseWheel="Preview_Wheel"/>
+    <TextBlock x:Name="VideoHint" Text="Подключите телефон и разрешите показ экрана" Foreground="#9A9AA8" HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False"/></Grid>
+   </Border>
+   <WrapPanel Grid.Row="1" Margin="0,8,0,0"><Button Content="Назад" Tag="back" Click="Navigation_Click"/><Button Content="Домой" Tag="home" Click="Navigation_Click"/><Button Content="Недавние" Tag="recents" Click="Navigation_Click"/><Button Content="Полный экран" Click="Fullscreen_Click"/><CheckBox Content="Поверх окон" Checked="Topmost_Changed" Unchecked="Topmost_Changed" VerticalAlignment="Center"/></WrapPanel>
+   <Border Grid.Row="2" Style="{StaticResource Card}" Margin="0,8,0,0"><StackPanel><TextBlock x:Name="ScreenTelemetry" Text="Подключите телефон"/><TextBlock x:Name="VideoStats" Foreground="#9A9AA8"/><Button Content="Остановить на телефоне" Click="Stop_Click" HorizontalAlignment="Left"/></StackPanel></Border>
+  </Grid></TabItem>
   <TabItem Header="Веб-камера"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="0,20,8,0">
   <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="Состояние телефона" FontSize="20"/><TextBlock x:Name="CameraTelemetry" Text="Подключите телефон"/></StackPanel></Border>
   <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="Камера телефона" FontSize="28"/><TextBlock Text="Передача с камеры пока недоступна в этой сборке." Foreground="#9A9AA8"/><CheckBox Content="Предпросмотр" IsEnabled="False"/></StackPanel></Border>

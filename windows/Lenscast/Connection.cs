@@ -14,9 +14,14 @@ internal sealed class Connection : IDisposable {
   internal readonly CancellationTokenSource Stop = new();
   internal readonly SemaphoreSlim Writer = new(1, 1);
   internal Stream? Stream;
+  internal volatile bool Ready;
  }
  private Session? current;
+ internal bool IsReady=>current?.Ready==true;
+ internal event Action? LinkLost;
  internal event Action<string>? Status;
+ internal event Action<string>? VideoStatus;
+ internal event Action<VideoFrame>? Frame;
  internal event Action<JsonElement>? Telemetry;
  internal event Action<double>? Roundtrip;
  internal void Start(string address, string code, bool usb) {
@@ -72,9 +77,14 @@ internal sealed class Connection : IDisposable {
        if (reply.TryGetProperty("token", out var token)) TrustStore.Save(new(address, fingerprint, token.GetString()!));
        else if (trust is not null) TrustStore.Save(trust with { Address=address });
       }
+      session.Ready=true;
       first = false;
       Report(session, "Подключён: " + reply.GetProperty("name").GetString() + (usb ? " · USB" : " · Wi-Fi"));
       Log.Write("Телефон подключён");
+      using var video = reply.TryGetProperty("videoTicket",out var vt) && reply.GetProperty("mode").GetString()=="Экран"
+       ? new VideoReceiver(address,usb,fingerprint,vt.GetString()!,m=>Send(session,m,ct),f=> {
+        if(ReferenceEquals(current,session) && !ct.IsCancellationRequested && Frame is {} render) render(f); else f.Dispose();
+       },text=>{ if(ReferenceEquals(current,session) && !ct.IsCancellationRequested) VideoStatus?.Invoke(text); }) : null;
       var clock = new ClockSync();
       long nextPing = 0;
       while (!ct.IsCancellationRequested) {
@@ -87,6 +97,7 @@ internal sealed class Connection : IDisposable {
        var message = await Read(active, readTimeout.Token);
        if (!ReferenceEquals(current, session)) return;
        switch (message.GetProperty("type").GetString()) {
+        case "notice": Report(session,message.GetProperty("message").GetString()!); break;
         case "telemetry": Telemetry?.Invoke(message); break;
         case "pong":
          clock.Observe(message.GetProperty("sent").GetInt64(), PcUs(), message.GetProperty("phoneUs").GetInt64());
@@ -104,12 +115,18 @@ internal sealed class Connection : IDisposable {
      Log.Write("Связь прервана", e);
      if (first) { Report(session, usb ? "Телефон найден, но Lenscast не отвечает. Нажмите «Старт» на телефоне и подключитесь снова." : "Телефон недоступен. Проверьте адрес и нажмите «Старт» на телефоне."); break; }
     }
-    finally { session.Stream = null; }
+    finally { session.Ready=false; session.Stream=null; if(ReferenceEquals(current,session)) LinkLost?.Invoke(); }
     try { await Task.Delay(1500, ct); } catch (OperationCanceledException) { break; }
    }
   } finally { session.Stop.Dispose(); }
  }
  private static long PcUs() => (long)(Stopwatch.GetTimestamp() * (1_000_000.0 / Stopwatch.Frequency));
+ internal Func<object,Task> BindSender() {
+  var session=current ?? throw new IOException("Телефон не подключён");
+  if(!session.Ready) throw new IOException("Телефон не подключён");
+  var token=session.Stop.Token;
+  return message=>Send(session,message,token);
+ }
  internal Task Send(object message, CancellationToken ct = default) {
   var session = current ?? throw new IOException("Телефон не подключён");
   return Send(session, message, ct);

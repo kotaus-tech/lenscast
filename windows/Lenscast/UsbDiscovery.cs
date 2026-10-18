@@ -42,6 +42,7 @@ internal static class UsbDiscovery {
  internal static Task Forward(string serial, CancellationToken ct) => Forward(serial,Run,ct);
  internal static async Task Forward(string serial,Func<string[],CancellationToken,Task<string>> run,CancellationToken ct) {
   if(string.IsNullOrWhiteSpace(serial)) throw new UsbDiscoveryException("Выберите телефон USB из списка.");
+  await run(["-s",serial,"forward","tcp:27186","tcp:27186"],ct);
   await run(["-s",serial,"forward","tcp:27185","tcp:27185"],ct);
   Log.Write("USB: перенаправление канала управления выполнено");
  }

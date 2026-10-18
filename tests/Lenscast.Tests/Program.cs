@@ -90,3 +90,5 @@ Check(names["Телефон._lenscast._tcp.local"]=="android.local" && hosts["an
 Check(Discovery.Query("_lenscast._tcp.local",12)[5]==1,"Формат запроса DNS-SD");
 
 await Lenscast.Tests.DiscoveryRegressionTests.Run();
+
+await ScreenRegressionTests.Run();

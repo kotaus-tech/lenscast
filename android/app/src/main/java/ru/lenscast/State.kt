@@ -7,6 +7,9 @@ import java.util.Date
 import java.util.Locale
 
 object State {
+ val screenRunning = mutableStateOf(false)
+ val screenStatus = mutableStateOf("Для показа экрана нужно разрешение Android")
+ val gesturesReady = mutableStateOf(false)
  val address = mutableStateOf("")
  val discoveryWarning = mutableStateOf("")
  val wifiReady = mutableStateOf(false)

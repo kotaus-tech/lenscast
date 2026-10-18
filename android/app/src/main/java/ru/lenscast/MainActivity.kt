@@ -1,6 +1,9 @@
 package ru.lenscast
 
 import android.Manifest
+import android.app.Activity
+import android.media.projection.MediaProjectionManager
+import android.media.projection.MediaProjectionConfig
 import android.app.NotificationManager
 import android.os.PowerManager
 import android.content.Intent
@@ -24,6 +27,18 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 
 class MainActivity : ComponentActivity() {
+ private val screenPermission=registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+  if(result.resultCode==Activity.RESULT_OK && result.data!=null) {
+   try { startForegroundService(Intent(this,ScreenService::class.java).putExtra("consent",result.data)) }
+   catch(e: Exception) { State.screenStatus.value="Не удалось показать экран. Нажмите «Разрешить показ экрана» ещё раз."; State.log(this,"Запуск показа экрана",e) }
+  } else State.screenStatus.value="Показ экрана не разрешён. Нажмите «Разрешить показ экрана»."
+ }
+ private fun allowScreen() {
+  try {
+   val manager=getSystemService(MediaProjectionManager::class.java)
+   screenPermission.launch(if(Build.VERSION.SDK_INT>=34) manager.createScreenCaptureIntent(MediaProjectionConfig.createConfigForDefaultDisplay()) else manager.createScreenCaptureIntent())
+  } catch(e: Exception) { State.screenStatus.value="Разрешение недоступно. Откройте Lenscast и попробуйте ещё раз."; State.log(this,"Разрешение показа экрана",e) }
+ }
  private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
   State.notificationsAllowed.value = granted
   State.status.value = if (granted) "Уведомления разрешены" else "Разрешите уведомления в настройках, чтобы видеть кнопку «Стоп»."
@@ -89,7 +104,13 @@ class MainActivity : ComponentActivity() {
         catch(e: Exception) { State.status.value="Не удалось запустить связь. Откройте приложение и попробуйте ещё раз."; State.log(this@MainActivity,"Ошибка запуска службы",e) }
        }, Modifier.fillMaxWidth().heightIn(min=56.dp)) { Text(if(State.running.value) "Стоп" else "Старт") }
        if(!State.notificationsAllowed.value) Text("Уведомления выключены. Разрешите их в настройках Lenscast, чтобы видеть кнопку «Стоп».", color=Color(0xFFF0B866))
-       Text("Сейчас доступна связь с ПК. Передача изображения появится в следующих блоках.", color=Color(0xFFF0B866))
+       if(State.mode.value=="Экран") Panel("Показ экрана") {
+        Text(State.screenStatus.value)
+        Text("Показывается весь экран, без звука. Защищённые окна Android не передаются.")
+        OutlinedButton(onClick={ allowScreen() },enabled=State.running.value && !State.screenRunning.value,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text("Разрешить показ экрана") }
+        Text(if(State.gesturesReady.value) "Управление с ПК разрешено" else "Для жестов с ПК включите «Lenscast · управление» в специальных возможностях. Чтение текста и содержимого окон не используется.")
+        OutlinedButton(onClick={ safeOpen(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text("Разрешить управление") }
+       } else Text("Передача с камеры появится в блоке C.", color=Color(0xFFF0B866))
        Panel("Состояние телефона") { Text(State.telemetry.value) }
       }
      }

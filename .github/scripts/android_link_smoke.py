@@ -140,6 +140,104 @@ def exercise(apk, remembered=None, tls12=False):
     return fingerprint, token
 
 
+def tap_node(node):
+    x1, y1, x2, y2 = map(int, re.findall(r'\d+', node.get('bounds', '')))
+    if x2 <= x1 or y2 <= y1:
+        return False
+    adb('shell', 'input', 'tap', str((x1+x2)//2), str((y1+y2)//2))
+    return True
+
+
+def video_packet(stream):
+    magic, version, kind, codec, flags, stamp, size, sequence = struct.unpack('!IBBBBQII', exactly(stream, 24))
+    assert magic == 0x4c435631 and version == 1 and kind in (0, 1, 2) and codec in (1, 2) and flags == 0, 'Неверный видеозаголовок'
+    assert 1 <= size <= 16777216, 'Неверный размер видео'
+    return kind, exactly(stream, size)
+
+
+def attach_video(ticket):
+    stream = socket.create_connection(('127.0.0.1', 27186), timeout=15)
+    send(stream, dict(version=1, ticket=ticket))
+    return stream
+
+
+def wait_key(stream, landscape=False):
+    configured = False
+    deadline = time.monotonic() + 25
+    for _ in range(250):
+        assert time.monotonic() < deadline, "Ключевой кадр не получен вовремя"
+        kind, body = video_packet(stream)
+        if kind == 0:
+            width, height = struct.unpack('!II', body[:8])
+            assert 16 <= width <= 4096 and 16 <= height <= 4096 and width % 2 == height % 2 == 0, 'Неверные размеры экрана'
+            assert body[8:11] == b'\x00\x00\x01' or body[8:12] == b'\x00\x00\x00\x01', 'Нет Annex B конфигурации'
+            configured = width > height if landscape else True
+        elif kind == 2 and configured:
+            return
+    raise AssertionError('Нет конфигурации и ключевого кадра')
+
+
+def screen_smoke(apk):
+    start(apk)
+    adb('shell', 'settings', 'put', 'secure', 'enabled_accessibility_services', 'ru.lenscast/ru.lenscast.GestureService')
+    adb('shell', 'settings', 'put', 'secure', 'accessibility_enabled', '1')
+    adb('forward', 'tcp:27186', 'tcp:27186')
+    for _ in range(12):
+        node = next((n for n in ui().iter('node') if n.get('text') == 'Разрешить показ экрана' and n.get('enabled') == 'true'), None)
+        if node is not None and tap_node(node):
+            break
+        adb('shell', 'input', 'swipe', '500', '1550', '500', '500', '300')
+    else:
+        raise AssertionError('Недоступна кнопка разрешения экрана')
+    for _ in range(8):
+        root = ui()
+        consent = next((n for n in root.iter('node') if n.get('enabled') == 'true' and
+                        (n.get('resource-id', '').endswith('/start_button') or
+                         n.get('text', '').lower() in ('start now', 'start', 'начать', 'начать сейчас'))), None)
+        if consent is not None:
+            tap_node(consent)
+        if any(n.get('text', '').startswith('Экран передаётся') for n in root.iter('node')):
+            break
+        time.sleep(1)
+    with socket.create_connection(('127.0.0.1', 27185), timeout=8) as control:
+        send(control, dict(type='hello', version=1))
+        ready = read(control)
+        ticket = ready.get('videoTicket', '')
+        assert len(ticket) == 64, 'Нет привязки видеоканала к сеансу'
+        with attach_video('0' * 64) as rejected:
+            assert rejected.recv(1) == b'', 'Видео доступно без аутентификации'
+        with attach_video(ticket) as video:
+            wait_key(video)
+            for _ in range(3):
+                video_packet(video)
+            print('Пройдено: MediaProjection/MediaCodec, настоящий Annex B, отдельный защищённый сеанс видео')
+            send(control, dict(type='navigation', action='home'))
+            send(control, dict(type='ping', sent=789))
+            assert wait_type(control, 'pong')['sent'] == 789, 'Видеоканал блокирует команды'
+            time.sleep(1)
+            send(control, dict(type='touch', action='down', x=0.1, y=0.1))
+            send(control, dict(type='touch', action='move', x=0.15, y=0.1))
+            send(control, dict(type='touch', action='up', x=0.15, y=0.1))
+            adb('shell', 'settings', 'put', 'system', 'accelerometer_rotation', '0')
+            adb('shell', 'settings', 'put', 'system', 'user_rotation', '1')
+            send(control, dict(type='keyframe'))
+            wait_key(video, landscape=True)
+            print('Пройдено: поток продолжается на домашнем экране и после поворота без нового согласия')
+        send(control, dict(type='touch', action='down', x=0.1, y=0.1))
+    time.sleep(1)
+    with socket.create_connection(('127.0.0.1', 27185), timeout=8) as control:
+        send(control, dict(type='hello', version=1))
+        ticket2 = read(control)['videoTicket']
+        assert ticket2 != ticket, 'Повторно использован билет старого сеанса'
+        with attach_video(ticket) as rejected:
+            assert rejected.recv(1) == b'', 'Старый билет видео не отозван'
+        with attach_video(ticket2) as video:
+            wait_key(video)
+        send(control, dict(type='stop'))
+    adb('shell', 'settings', 'put', 'system', 'user_rotation', '0')
+    print('Пройдено: переподключение сохраняет захват, но меняет и проверяет билет видео')
+
+
 def main():
     apk, legacy = sys.argv[1:3]
     remembered = exercise(apk)
@@ -158,6 +256,7 @@ def main():
         raise AssertionError('Контрольный старый APK неожиданно прошёл TLS')
     exercise(apk)  # No uninstall/data reset: migration must repair the old key.
     print('Пройдено: обновление поверх старого APK исправляет TLS без удаления данных')
+    screen_smoke(apk)
 
 
 if __name__ == '__main__':
