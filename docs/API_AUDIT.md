@@ -205,3 +205,26 @@ android:id/button1; ShareToAppPermissionDialogDelegate меняет текст �
 resource-id, не текст с AllCaps. AOSP TextView.getTextForAccessibility возвращает
 mTransformed, а не исходный mText:
 https://github.com/aosp-mirror/platform_frameworks_base/blob/android-16.0.0_r1/core/java/android/widget/TextView.java
+
+
+## Начало C · каталог возможностей (ещё не поток)
+
+Сверено с официальным AOSP android-16.0.0_r1:
+- [CameraManager.java](https://github.com/aosp-mirror/platform_frameworks_base/blob/android-16.0.0_r1/core/java/android/hardware/camera2/CameraManager.java):
+  getCameraIdList, getCameraCharacteristics; чтение не открывает устройство.
+- [CameraCharacteristics.java](https://github.com/aosp-mirror/platform_frameworks_base/blob/android-16.0.0_r1/core/java/android/hardware/camera2/CameraCharacteristics.java):
+  getAvailableCaptureRequestKeys, getPhysicalCameraIds (physical-only ID с API29
+  не обязательно можно открыть отдельно), все используемые в CameraCatalog ключи:
+  LENS_FACING, SENSOR_ORIENTATION, INFO_SUPPORTED_HARDWARE_LEVEL,
+  LENS_INFO_AVAILABLE_FOCAL_LENGTHS, REQUEST_AVAILABLE_CAPABILITIES,
+  SCALER_STREAM_CONFIGURATION_MAP, CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES,
+  CONTROL_AE/AF/AWB_AVAILABLE_MODES, CONTROL_ZOOM_RATIO_RANGE,
+  LENS_INFO_MINIMUM_FOCUS_DISTANCE, CONTROL_AE_COMPENSATION_RANGE/STEP,
+  CONTROL_AE/AWB_LOCK_AVAILABLE, FLASH_INFO_AVAILABLE,
+  CONTROL_AVAILABLE_VIDEO_STABILIZATION_MODES, LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION,
+  SENSOR_INFO_SENSITIVITY_RANGE/EXPOSURE_TIME_RANGE/MAX_FRAME_DURATION.
+- [StreamConfigurationMap.java](https://github.com/aosp-mirror/platform_frameworks_base/blob/android-16.0.0_r1/core/java/android/hardware/camera2/params/StreamConfigurationMap.java):
+  getOutputSizes(Class), getOutputMinFrameDuration(Class,Size) с MediaCodec.class.
+  Длительность 0 разрешена SDK как неизвестная (в частности без MANUAL_SENSOR).
+  Metadata не доказывает поддержку session + encoder и фактический FPS: каталог
+  только для кандидатов, не включён в UI и не подменяет проверку потоком.
