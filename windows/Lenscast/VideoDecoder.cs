@@ -1,3 +1,4 @@
+using System.IO;
 using System.Buffers;
 using System.Runtime.InteropServices;
 namespace Lenscast;
@@ -32,7 +33,8 @@ internal sealed unsafe class VideoDecoder:IDisposable {
  [StructLayout(LayoutKind.Sequential)] private struct Output { internal uint Id; internal nint Sample; internal uint Status; internal nint Events; }
  private nint transform,device,context,manager;
  private bool com,mf;
- private int width,height,stride;
+ [StructLayout(LayoutKind.Sequential)] private struct Area { internal ushort XFraction; internal short X; internal ushort YFraction; internal short Y; internal int Width,Height; }
+ private int width,height,stride,viewWidth,viewHeight,originX,originY;
  internal bool UsingDevice { get; private set; }
  private static void* Fn(nint p,int slot)=>(void*)(*(nint**)p)[slot];
  private static void Check(int hr) { if(hr<0) Marshal.ThrowExceptionForHR(hr); }
@@ -45,6 +47,7 @@ internal sealed unsafe class VideoDecoder:IDisposable {
  private static ulong Get64(nint p,Guid key) { ulong value=0; Check(((delegate* unmanaged[Stdcall]<nint,Guid*,ulong*,int>)Fn(p,8))(p,&key,&value)); return value; }
  private void Message(uint message,nint value=0)=>Check(((delegate* unmanaged[Stdcall]<nint,uint,nint,int>)Fn(transform,23))(transform,message,value));
  internal VideoDecoder(int w,int h,bool software=false,int codec=1) {
+  viewWidth=w; viewHeight=h;
   try {
    Check(CoInitializeEx(0,0)); com=true;
    Check(MFStartup(0x20070,0)); mf=true;
@@ -100,6 +103,12 @@ internal sealed unsafe class VideoDecoder:IDisposable {
     var size=Get64(type,FrameSize); width=(int)(size>>32); height=(int)(size&uint.MaxValue);
     stride=checked((int)Get32(type,Stride,(uint)width));
     if(width is < 16 or > 4096 || height is < 16 or > 4096 || (width&1)!=0 || (height&1)!=0 || stride<width || stride>8192) throw new InvalidDataException("Неподдерживаемые размеры кадра");
+    var apertureKey=new Guid("d7388766-18fe-48c6-a177-ee894867c8c4"); var area=new Area(); uint length=0;
+    if(((delegate* unmanaged[Stdcall]<nint,Guid*,byte*,uint,uint*,int>)Fn(type,15))(type,&apertureKey,(byte*)&area,(uint)sizeof(Area),&length)>=0 && length==sizeof(Area) && area.Width>0 && area.Height>0) {
+     viewWidth=area.Width; viewHeight=area.Height; originX=area.X; originY=area.Y;
+     if(area.XFraction!=0 || area.YFraction!=0) throw new InvalidDataException("Дробная область кадра не поддерживается");
+    }
+    if(viewWidth<16 || viewHeight<16 || (viewWidth&1)!=0 || (viewHeight&1)!=0 || originX<0 || originY<0 || (originX&1)!=0 || (originY&1)!=0 || viewWidth+originX>width || viewHeight+originY>height) throw new InvalidDataException("Недопустимая область кадра");
     return;
    } finally { Release(ref type); }
   }
@@ -169,17 +178,19 @@ internal sealed unsafe class VideoDecoder:IDisposable {
     }
    } finally { Release(ref two); }
    long time=0; Check(((delegate* unmanaged[Stdcall]<nint,long*,int>)Fn(sample,35))(sample,&time));
-   var pixels=ArrayPool<byte>.Shared.Rent(width*height*4);
-   try { ConvertNv12(nv!,pitch,width,height,pixels); return new(width,height,pixels,time/10,UsingDevice?"DXVA/D3D11":"Процессор"); }
+   var pixels=ArrayPool<byte>.Shared.Rent(viewWidth*viewHeight*4);
+   try { ConvertNv12(nv!,pitch,viewWidth,viewHeight,pixels,height,originX,originY); return new(viewWidth,viewHeight,pixels,time/10,UsingDevice?"DXVA/D3D11":"Процессор"); }
    catch { ArrayPool<byte>.Shared.Return(pixels); throw; }
   } finally { if(nv!=null) ArrayPool<byte>.Shared.Return(nv); Release(ref buffer); }
  }
- internal static void ConvertNv12(byte[] input,int pitch,int width,int height,byte[] output) {
+ internal static void ConvertNv12(byte[] input,int pitch,int width,int height,byte[] output,int sourceHeight=-1,int originX=0,int originY=0) {
+  if(sourceHeight<0) sourceHeight=height;
   Parallel.For(0,height/2,row=> {
    for(int dy=0;dy<2;dy++) {
     int y=row*2+dy;
     for(int x=0;x<width;x++) {
-     int c=Math.Max(0,input[y*pitch+x]-16),uv=pitch*height+row*pitch+(x&~1),u=input[uv]-128,v=input[uv+1]-128,o=(y*width+x)*4;
+     int sy=y+originY,sx=x+originX;
+     int c=Math.Max(0,input[sy*pitch+sx]-16),uv=pitch*sourceHeight+(sy/2)*pitch+(sx&~1),u=input[uv]-128,v=input[uv+1]-128,o=(y*width+x)*4;
      output[o]=(byte)Math.Clamp((298*c+541*u+128)>>8,0,255);
      output[o+1]=(byte)Math.Clamp((298*c-55*u-136*v+128)>>8,0,255);
      output[o+2]=(byte)Math.Clamp((298*c+459*v+128)>>8,0,255); output[o+3]=255;

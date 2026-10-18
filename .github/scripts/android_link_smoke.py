@@ -12,6 +12,7 @@ import struct
 import subprocess
 import sys
 import time
+import threading
 import xml.etree.ElementTree as ET
 
 
@@ -177,6 +178,47 @@ def wait_key(stream, landscape=False):
     raise AssertionError('Нет конфигурации и ключевого кадра')
 
 
+class ControlSession:
+    """Like the desktop: keep control alive while a separate socket waits for video."""
+    def __enter__(self):
+        self.socket = socket.create_connection(('127.0.0.1', 27185), timeout=8)
+        self.lock = threading.Lock()
+        self.stop = threading.Event()
+        send(self, dict(type='hello', version=1))
+        self.ready = read(self)
+        assert self.ready.get('type') == 'ready', 'Управляющий сеанс не принят'
+        self.thread = threading.Thread(target=self.heartbeat, daemon=True)
+        self.thread.start()
+        return self
+
+    def sendall(self, data):
+        with self.lock:
+            self.socket.sendall(data)
+
+    def recv(self, count):
+        return self.socket.recv(count)
+
+    def heartbeat(self):
+        while not self.stop.wait(1):
+            try:
+                send(self, dict(type='ping', sent=int(time.monotonic() * 1_000_000)))
+            except OSError:
+                return
+
+    def __exit__(self, *_):
+        self.stop.set()
+        self.socket.close()
+        self.thread.join(timeout=2)
+
+
+def wait_pong(control, stamp):
+    for _ in range(64):
+        message = read(control)
+        if message.get('type') == 'pong' and message.get('sent') == stamp:
+            return
+    raise AssertionError('Управление не отвечает во время видеопотока')
+
+
 def screen_smoke(apk):
     start(apk)
     adb('shell', 'settings', 'put', 'secure', 'enabled_accessibility_services', 'ru.lenscast/ru.lenscast.GestureService')
@@ -192,16 +234,15 @@ def screen_smoke(apk):
     for _ in range(8):
         root = ui()
         consent = next((n for n in root.iter('node') if n.get('enabled') == 'true' and
-                        (n.get('resource-id', '').endswith('/start_button') or
+                        (n.get('resource-id', '') == 'android:id/button1' or n.get('resource-id', '').endswith('/start_button') or
                          n.get('text', '').lower() in ('start now', 'start', 'начать', 'начать сейчас'))), None)
         if consent is not None:
             tap_node(consent)
         if any(n.get('text', '').startswith('Экран передаётся') for n in root.iter('node')):
             break
         time.sleep(1)
-    with socket.create_connection(('127.0.0.1', 27185), timeout=8) as control:
-        send(control, dict(type='hello', version=1))
-        ready = read(control)
+    with ControlSession() as control:
+        ready = control.ready
         ticket = ready.get('videoTicket', '')
         assert len(ticket) == 64, 'Нет привязки видеоканала к сеансу'
         with attach_video('0' * 64) as rejected:
@@ -213,11 +254,14 @@ def screen_smoke(apk):
             print('Пройдено: MediaProjection/MediaCodec, настоящий Annex B, отдельный защищённый сеанс видео')
             send(control, dict(type='navigation', action='home'))
             send(control, dict(type='ping', sent=789))
-            assert wait_type(control, 'pong')['sent'] == 789, 'Видеоканал блокирует команды'
+            wait_pong(control, 789)
             time.sleep(1)
             send(control, dict(type='touch', action='down', x=0.1, y=0.1))
             send(control, dict(type='touch', action='move', x=0.15, y=0.1))
             send(control, dict(type='touch', action='up', x=0.15, y=0.1))
+            # The Pixel launcher can force portrait. Resume the resizable test app
+            # before requesting rotation, without restarting the projection service.
+            adb('shell', 'am', 'start', '-W', '-n', 'ru.lenscast/.MainActivity')
             adb('shell', 'settings', 'put', 'system', 'accelerometer_rotation', '0')
             adb('shell', 'settings', 'put', 'system', 'user_rotation', '1')
             send(control, dict(type='keyframe'))
@@ -225,9 +269,8 @@ def screen_smoke(apk):
             print('Пройдено: поток продолжается на домашнем экране и после поворота без нового согласия')
         send(control, dict(type='touch', action='down', x=0.1, y=0.1))
     time.sleep(1)
-    with socket.create_connection(('127.0.0.1', 27185), timeout=8) as control:
-        send(control, dict(type='hello', version=1))
-        ticket2 = read(control)['videoTicket']
+    with ControlSession() as control:
+        ticket2 = control.ready['videoTicket']
         assert ticket2 != ticket, 'Повторно использован билет старого сеанса'
         with attach_video(ticket) as rejected:
             assert rejected.recv(1) == b'', 'Старый билет видео не отозван'

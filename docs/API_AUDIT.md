@@ -172,3 +172,11 @@ SDK Android зафиксирован на 36; основание выбора п
 Ограничения: AVD не подтверждает драйвер GPU/OEM, 30+ минут и штатную камеру.
 Надпись DXVA — запрос D3D-пути, не доказательство аппаратного выполнения каждого
 кадра. Для отказа аппаратного пути предусмотрен новый software MFT и запрос IDR.
+
+Дополнительно для SPS crop: MF_MT_MINIMUM_DISPLAY_APERTURE / MFVideoArea / MFOffset
+и IMFAttributes.GetBlob (слот 15) сверены с mfapi.h/mfobjects.h. Декодируемые
+размеры/stride сохраняются отдельно от видимой области; смещение UV считается
+по высоте кодированного NV12, а не обрезанного изображения. В CI есть 66×50.
+Android 16 SystemUI consent: официальный screen_share_dialog.xml содержит
+android:id/button1; ShareToAppPermissionDialogDelegate меняет текст по выбранному
+типу захвата. CI нажимает ID, не полагается на английский текст старого диалога.
