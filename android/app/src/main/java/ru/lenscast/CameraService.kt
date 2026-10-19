@@ -104,6 +104,11 @@ class CameraService: Service() {
   val newMode=modes.firstOrNull { it.id==message.optString("mode",mode.id) } ?: error("Режим недоступен. Выберите режим из списка.")
   val next=JSONObject(settings.toString())
   message.optJSONObject("controls")?.let { patch -> patch.keys().forEach { key -> next.put(key,patch.get(key)) } }
+  // Enter manual exposure without jumping to the darkest sensor defaults.
+  if(next.optBoolean("manualExposure",false)) {
+   selected.controls.sensitivity?.let { range -> if(!next.has("iso")) next.put("iso",range.clamp(if(isoActual>0) isoActual else range.lower)) }
+   selected.controls.exposureNanos?.let { range -> if(!next.has("exposureMs")) next.put("exposureMs",minOf(range.clamp(if(exposureActual>0) exposureActual else range.lower),1_000_000_000L/newMode.high)/1e6) }
+  }
   validate(next,newMode)
   val newRotation=message.optInt("rotation",rotation); require(newRotation in listOf(0,90,180,270)) { "Выберите поворот 0, 90, 180 или 270°." }
   val before=settings; settings=next
@@ -222,10 +227,10 @@ class CameraService: Service() {
    else c.activeArray?.let { a -> val w=(a.width()/zoom).toInt(); val h=(a.height()/zoom).toInt(); val left=a.left+(a.width()-w)/2; val top=a.top+(a.height()-h)/2; set(CaptureRequest.SCALER_CROP_REGION,Rect(left,top,left+w,top+h)) }
   }
   if(s.has("ev") && !manual) set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION,s.getInt("ev"))
-  if(s.has("aeLock") && !manual) set(CaptureRequest.CONTROL_AE_LOCK,s.getBoolean("aeLock"))
+  if(c.aeLock && !manual) set(CaptureRequest.CONTROL_AE_LOCK,s.optBoolean("aeLock",false))
   if(s.has("awbMode")) set(CaptureRequest.CONTROL_AWB_MODE,s.getInt("awbMode"))
-  if(s.has("awbLock")) set(CaptureRequest.CONTROL_AWB_LOCK,s.getBoolean("awbLock"))
-  if(s.has("torch")) set(CaptureRequest.FLASH_MODE,if(s.getBoolean("torch")) CaptureRequest.FLASH_MODE_TORCH else CaptureRequest.FLASH_MODE_OFF)
+  if(c.awbLock) set(CaptureRequest.CONTROL_AWB_LOCK,s.optBoolean("awbLock",false))
+  if(c.flash) set(CaptureRequest.FLASH_MODE,if(s.optBoolean("torch",false)) CaptureRequest.FLASH_MODE_TORCH else CaptureRequest.FLASH_MODE_OFF)
   if(s.optInt("videoStabilization",0)!=0 && CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_OFF in c.opticalStabilization) set(CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE,CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_OFF)
   if(s.optInt("opticalStabilization",0)!=0 && CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF in c.videoStabilization) set(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE,CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF)
   if(s.has("videoStabilization")) set(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE,s.getInt("videoStabilization"))
@@ -254,10 +259,10 @@ class CameraService: Service() {
    if(values!=null && values.isEmpty()) return
    val item=JSONObject().put("key",key).put("label",label)
    if(values!=null) item.put("values",JSONArray(values)) else if(low!=null && high!=null) item.put("min",low).put("max",high).put("step",step) else item.put("boolean",true)
-   if(settings.has(key)) item.put("value",settings.get(key))
+   if(settings.has(key)) item.put("value",settings.get(key)) else if(low==null && values==null) item.put("value",false)
    controls.put(item)
   }
-  c.zoom?.let { if(selected.supports(CaptureRequest.CONTROL_ZOOM_RATIO) || c.activeArray!=null) add("zoom","Масштаб",if(selected.supports(CaptureRequest.CONTROL_ZOOM_RATIO)) CaptureRequest.CONTROL_ZOOM_RATIO else CaptureRequest.SCALER_CROP_REGION,it.lower,it.upper,0.1) }
+  c.zoom?.takeIf { it.upper>it.lower }?.let { if(selected.supports(CaptureRequest.CONTROL_ZOOM_RATIO) || c.activeArray!=null) add("zoom","Масштаб",if(selected.supports(CaptureRequest.CONTROL_ZOOM_RATIO)) CaptureRequest.CONTROL_ZOOM_RATIO else CaptureRequest.SCALER_CROP_REGION,it.lower,it.upper,0.1) }
   add("focusMode","Фокус",CaptureRequest.CONTROL_AF_MODE,values=c.afModes)
   if(c.afModes.contains(CaptureRequest.CONTROL_AF_MODE_OFF)) c.minimumFocusDiopters?.takeIf { it>0 }?.let { add("focus","Ручной фокус · диоптрии",CaptureRequest.LENS_FOCUS_DISTANCE,0,it,0.01) }
   c.compensation?.takeIf { it.upper>it.lower }?.let { add("ev","Экспокоррекция · шаг ${c.compensationStep}",CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION,it.lower,it.upper) }
@@ -265,8 +270,8 @@ class CameraService: Service() {
   add("awbMode","Баланс белого",CaptureRequest.CONTROL_AWB_MODE,values=c.awbModes)
   if(c.awbLock) add("awbLock","Блокировка баланса белого",CaptureRequest.CONTROL_AWB_LOCK)
   if(c.flash) add("torch","Фонарик",CaptureRequest.FLASH_MODE)
-  add("videoStabilization","Электронная стабилизация",CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE,values=c.videoStabilization)
-  add("opticalStabilization","Оптическая стабилизация",CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE,values=c.opticalStabilization)
+  if(c.videoStabilization.any { it!=0 }) add("videoStabilization","Электронная стабилизация",CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE,values=c.videoStabilization)
+  if(c.opticalStabilization.any { it!=0 }) add("opticalStabilization","Оптическая стабилизация",CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE,values=c.opticalStabilization)
   if(c.aeModes.contains(CaptureRequest.CONTROL_AE_MODE_OFF) && c.sensitivity!=null && c.exposureNanos!=null && selected.supports(CaptureRequest.SENSOR_SENSITIVITY) && selected.supports(CaptureRequest.SENSOR_EXPOSURE_TIME) && selected.supports(CaptureRequest.SENSOR_FRAME_DURATION)) {
    add("manualExposure","Ручная экспозиция",CaptureRequest.CONTROL_AE_MODE)
    add("iso","Светочувствительность · ISO",CaptureRequest.SENSOR_SENSITIVITY,c.sensitivity.lower,c.sensitivity.upper)

@@ -16,8 +16,8 @@ public partial class App : Application
     timer.Stop();
     var window=Windows.OfType<MainWindow>().FirstOrDefault();
     if(window is null || !window.IsLoaded || !window.IsVisible) { Shutdown(1); return; }
-    window.SmokeCameraPanel();
     window.Width=760; window.Height=580; window.UpdateLayout();
+    window.SmokeCameraPanel();
     Log.Write("Проверка загрузки WPF и минимального размера пройдена");
     Shutdown(0);
    };

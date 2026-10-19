@@ -410,6 +410,14 @@ def camera_smoke(apk):
                     value = False if item.get('boolean') else item['values'][-1] if 'values' in item else item['min']
                     send(control, dict(type='cameraSet', controls={key: value}))
                     c = state(lambda s: s.get('ready') and any(i.get('key') == key and i.get('value') == value for i in s.get('controls', [])))
+                if all(key in controls for key in ('manualExposure', 'iso', 'exposureMs')):
+                    iso = int(controls['iso']['min'])
+                    exposure = max(controls['exposureMs']['min'], min(10.0, controls['exposureMs']['max']))
+                    send(control, dict(type='cameraSet', controls={'manualExposure': True, 'iso': iso, 'exposureMs': exposure}))
+                    state(lambda s: s.get('ready') and s.get('actualIso') == iso and abs(s.get('actualExposureMs', -100)-exposure) < 0.5)
+                    send(control, dict(type='cameraSet', controls={'manualExposure': False}))
+                    state(lambda s: s.get('ready') and any(i.get('key') == 'manualExposure' and i.get('value') is False for i in s.get('controls', [])))
+                    print('Пройдено: ручные ISO/выдержка подтверждены реальным CaptureResult, возврат auto работает')
                 # Invalid input must leave capture alive and must not be persisted.
                 send(control, dict(type='cameraSet', controls={'несуществующий': 1}))
                 state(lambda s: s.get('ready') and s.get('status', '').startswith('Настройка не применена'))
@@ -437,6 +445,20 @@ def camera_smoke(apk):
                 adb('shell', 'input', 'keyevent', '224')  # KEYCODE_WAKEUP
                 adb('shell', 'wm', 'dismiss-keyguard')
                 print('Пройдено: камера продолжает выдавать кадры с выключенным экраном AVD')
+                adb('shell', 'am', 'start', '-W', '-n', 'ru.lenscast/.MainActivity')
+                for _ in range(10):
+                    black = next((n for n in ui().iter('node') if n.get('text') == 'Чёрный экран'), None)
+                    if black is not None and tap_node(black): break
+                    adb('shell', 'input', 'swipe', '500', '1550', '500', '500', '300')
+                else: raise AssertionError('Чёрный fallback недоступен')
+                before_black = received[0]
+                root = ui()
+                back = next((n for n in root.iter('node') if n.get('text') == 'Вернуться'), None)
+                assert back is not None and received[0] > before_black, 'Fallback не сохранил камеру и кнопку возврата'
+                assert tap_node(back), 'Не сработал возврат из чёрного экрана'
+                state()
+                print('Пройдено: чёрный fallback и возврат не останавливают настоящий поток камеры')
+
             finally:
                 done.set()
                 video.shutdown(socket.SHUT_RDWR)

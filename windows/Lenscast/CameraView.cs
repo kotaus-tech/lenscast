@@ -49,7 +49,7 @@ public partial class MainWindow {
   row.Children.Add(new TextBlock { Text=item.GetProperty("label").GetString(),TextWrapping=TextWrapping.Wrap });
   bool has=item.TryGetProperty("value",out var value);
   if(item.TryGetProperty("boolean",out _)) {
-   var check=new CheckBox { Content="Включено",IsChecked=has?value.GetBoolean():null,IsThreeState=true };
+   var check=new CheckBox { Content="Включено",IsChecked=has && value.GetBoolean(),IsThreeState=false };
    check.Click+=async(_,_)=> { if(check.IsChecked is bool b) await SendCamera(new {type="cameraSet",controls=new Dictionary<string,object>{{key,b}}}); };
    row.Children.Add(check);
   } else if(item.TryGetProperty("values",out var values)) {
@@ -82,11 +82,14 @@ public partial class MainWindow {
    "cameras":[{"id":"0","label":"Задняя камера"}],"modes":[{"id":"640x480@30-30","width":640,"height":480,"low":30,"high":30}],
    "controls":[{"key":"zoom","label":"Масштаб","min":1,"max":4,"step":0.1,"value":1},{"key":"focusMode","label":"Фокус","values":[0,3],"value":3},{"key":"aeLock","label":"Блокировка экспозиции","boolean":true,"value":false},{"key":"iso","label":"Светочувствительность","min":100,"max":800,"step":1,"value":100}]}
   """);
+  MainTabs.SelectedIndex=2;
   UpdateCamera(doc.RootElement);
   if(CameraDevices.Items.Count!=1 || CameraModes.Items.Count!=1 || CameraControls.Children.Count!=3 || CameraProControls.Children.Count!=1 || CameraPreview.LayoutTransform is not TransformGroup {Children.Count:2}) throw new InvalidOperationException("Не построен интерфейс камеры");
   var pixels=System.Buffers.ArrayPool<byte>.Shared.Rent(640*480*4);
   using(var frame=new VideoFrame(640,480,pixels,1,"Проверка")) PresentCameraFrame(frame);
   if(CameraPreview.Source is not WriteableBitmap {PixelWidth:640,PixelHeight:480}) throw new InvalidOperationException("Нет предпросмотра камеры");
+  UpdateLayout();
+  if(CameraPreview.ActualWidth<=0 || CameraPreview.ActualHeight<=0 || CameraSelectors.ActualWidth>ActualWidth) throw new InvalidOperationException("Камера не размещена в минимальном окне");
   CameraLost();
   if(CameraPreview.Source is not null || CameraSelectors.IsEnabled) throw new InvalidOperationException("Разрыв не очистил камеру");
   Log.Write("Проверка Camera UI: динамические элементы, Профи, поворот/отражение, кадр и отключение пройдены");

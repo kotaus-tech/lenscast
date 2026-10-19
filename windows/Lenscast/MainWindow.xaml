@@ -3,7 +3,7 @@
  <ui:TitleBar Title="Lenscast" Grid.Row="0" Height="40"/>
  <Grid Grid.Row="1" Margin="24"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
  <DockPanel Margin="0,0,0,20"><TextBlock Text="Lenscast" FontSize="30"/><TextBlock Text="Телефон рядом. Картинка — перед вами." Foreground="#9A9AA8" HorizontalAlignment="Right" VerticalAlignment="Center"/></DockPanel>
- <TabControl Grid.Row="1" Background="Transparent">
+ <TabControl x:Name="MainTabs" Grid.Row="1" Background="Transparent">
   <TabItem Header="Подключение"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="0,20,8,0">
    <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="Ваш телефон" FontSize="24"/><TextBlock Text="Нажмите «Старт» в Lenscast на телефоне. Для Wi-Fi подключите телефон к тому же роутеру, что и ПК." Foreground="#9A9AA8"/>
    <WrapPanel><Button x:Name="FindWifi" Content="Найти телефоны" Click="Discover_Click"/><Button x:Name="FindUsb" Content="Проверить USB" Click="Usb_Click"/></WrapPanel>
