@@ -18,12 +18,13 @@ import java.util.concurrent.Executor
 class CameraService: Service() {
  companion object {
   @Volatile private var current: CameraService?=null
+  @Volatile private var negotiatedCodec=1
   fun command(message: JSONObject): Boolean {
    val service=current ?: return false
    service.handler.post { if(!service.closed) try { service.change(message) } catch(e: Exception) { service.notice(e) } }
    return true
   }
-  fun preferCodec(codec: Int) { current?.let { s -> s.handler.post { if(!s.closed && codec in 1..2 && codec!=s.preferredCodec) { s.preferredCodec=codec; s.restart() } } } }
+  fun preferCodec(codec: Int) { if(codec !in 1..2) return; negotiatedCodec=codec; current?.let { s -> s.handler.post { if(!s.closed && codec in 1..2 && codec!=s.preferredCodec) { s.preferredCodec=codec; s.restart() } } } }
  }
  private data class Mode(val width: Int,val height: Int,val low: Int,val high: Int) {
   val id get()="${width}x${height}@$low-$high"
@@ -64,6 +65,7 @@ class CameraService: Service() {
    State.cameraRunning.value=true
    handler.post {
     try {
+     preferredCodec=negotiatedCodec
      cameras=CameraCatalog.discover(this).filter { availableModes(it).isNotEmpty() }
      check(cameras.isNotEmpty()) { "Камеры недоступны. Разрешите камеру в настройках Lenscast." }
      choose(cameras.firstOrNull { it.id==prefs.getString("selected",null) } ?: cameras.firstOrNull { it.facing==CameraCharacteristics.LENS_FACING_BACK } ?: cameras.first())
@@ -142,7 +144,7 @@ class CameraService: Service() {
   val manual=c.aeModes.contains(CaptureRequest.CONTROL_AE_MODE_OFF) && selected.supports(CaptureRequest.CONTROL_AE_MODE) && selected.supports(CaptureRequest.SENSOR_EXPOSURE_TIME) && selected.supports(CaptureRequest.SENSOR_SENSITIVITY) && selected.supports(CaptureRequest.SENSOR_FRAME_DURATION) && c.sensitivity!=null && c.exposureNanos!=null
   flag("manualExposure",manual)
   number("iso",c.sensitivity?.lower?.toDouble() ?: 0.0,c.sensitivity?.upper?.toDouble() ?: 0.0,manual)
-  number("exposureMs",(c.exposureNanos?.lower ?: 0)/1e6,minOf((c.exposureNanos?.upper ?: 0),1_000_000_000L/m.high)/1e6,manual)
+  number("exposureMs",(c.exposureNanos?.lower ?: 0)/1e6,(if(s.optBoolean("manualExposure",false)) minOf((c.exposureNanos?.upper ?: 0),1_000_000_000L/m.high) else c.exposureNanos?.upper ?: 0)/1e6,manual)
   require(!(s.optInt("videoStabilization",0)!=0 && s.optInt("opticalStabilization",0)!=0)) { "Включите только один вид стабилизации." }
  }
  private fun restart() {

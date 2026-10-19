@@ -11,7 +11,8 @@ public partial class MainWindow {
  private bool updatingCamera;
  private string cameraLayout="";
  private WriteableBitmap? cameraBitmap;
- private void CameraLost() { cameraLayout=""; CameraPreview.Source=null; cameraBitmap=null; CameraSelectors.IsEnabled=false; CameraStatus.Text="Связь прервана. Подключите телефон."; }
+ private void ShowVideoStatus(string text) { if(connection.Mode=="Веб-камера") CameraStats.Text=text; else VideoStats.Text=text; }
+ private void CameraLost() { CameraStats.Text=""; cameraLayout=""; CameraPreview.Source=null; cameraBitmap=null; CameraSelectors.IsEnabled=false; CameraStatus.Text="Связь прервана. Подключите телефон."; }
  private void PresentCameraFrame(VideoFrame f) {
   if(cameraBitmap is null || cameraBitmap.PixelWidth!=f.Width || cameraBitmap.PixelHeight!=f.Height) {
    cameraBitmap=new WriteableBitmap(f.Width,f.Height,96,96,PixelFormats.Bgra32,null); CameraPreview.Source=cameraBitmap;
@@ -90,6 +91,9 @@ public partial class MainWindow {
   if(CameraPreview.Source is not WriteableBitmap {PixelWidth:640,PixelHeight:480}) throw new InvalidOperationException("Нет предпросмотра камеры");
   UpdateLayout();
   if(CameraPreview.ActualWidth<=0 || CameraPreview.ActualHeight<=0 || CameraSelectors.ActualWidth>ActualWidth) throw new InvalidOperationException("Камера не размещена в минимальном окне");
+  connection.Mode="Веб-камера"; ShowVideoStatus("Проверка сообщения видеоканала");
+  if(CameraStats.Text!="Проверка сообщения видеоканала") throw new InvalidOperationException("Ошибка камеры скрыта в другой вкладке");
+  connection.Mode="";
   CameraLost();
   if(CameraPreview.Source is not null || CameraSelectors.IsEnabled) throw new InvalidOperationException("Разрыв не очистил камеру");
   Log.Write("Проверка Camera UI: динамические элементы, Профи, поворот/отражение, кадр и отключение пройдены");

@@ -24,7 +24,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow {
    CameraLost(); canControl=false; CancelPointer(); Interlocked.Exchange(ref pendingFrame,null)?.Dispose(); Preview.Source=null; if(fullImage!=null) fullImage.Source=null; bitmap=null; VideoHint.Visibility=Visibility.Visible;
   });
   connection.Frame+=ReceiveFrame;
-  connection.VideoStatus+=s=>Dispatcher.InvokeAsync(()=>VideoStats.Text=s);
+  connection.VideoStatus+=s=>Dispatcher.InvokeAsync(()=>ShowVideoStatus(s));
   Deactivated+=(_,_)=>CancelPointer();
   connection.Status += s=>Dispatcher.InvokeAsync(()=>Status.Text=s);
   connection.Roundtrip += ms=>Dispatcher.InvokeAsync(()=>roundtrip=ms);

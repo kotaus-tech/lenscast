@@ -377,6 +377,8 @@ def camera_smoke(apk):
             done = threading.Event()
             packets = []
             received = [0]
+            video_config = threading.Event()
+            video_key = threading.Event()
             failure = []
             def drain():
                 try:
@@ -384,6 +386,8 @@ def camera_smoke(apk):
                         kind, body = video_packet(video)
                         packets.append((kind, len(body)))
                         if kind in (1, 2): received[0] += 1
+                        if kind == 0: video_config.set()
+                        if kind == 2: video_key.set()
                         del packets[:-300]
                 except Exception as e:
                     if not done.is_set(): failure.append(e)
@@ -399,8 +403,8 @@ def camera_smoke(apk):
                             c = message.get('camera', {})
                             if predicate(c): return c
                     raise AssertionError('Камера не выдала ожидаемое состояние')
-                c = state()
-                assert c['modes'] and c['cameras'] and any(k == 0 for k, _ in packets) and any(k == 2 for k, _ in packets), 'Нет настоящих конфигурации и ключевого кадра камеры'
+                c = state(lambda s: s.get('ready') and video_config.is_set() and video_key.is_set())
+                assert c['modes'] and c['cameras'] and video_config.is_set() and video_key.is_set(), 'Нет настоящих конфигурации и ключевого кадра камеры'
                 assert len(json.dumps(c).encode()) < 60000, 'Каталог не помещается в управляющий кадр'
                 print('Пройдено: Camera2 → поверхность MediaCodec → настоящий Annex B; MediaProjection не запущен')
                 controls = {item['key']: item for item in c['controls']}
