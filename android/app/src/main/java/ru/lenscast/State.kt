@@ -7,6 +7,9 @@ import java.util.Date
 import java.util.Locale
 
 object State {
+ val cameraRunning = mutableStateOf(false)
+ val cameraStatus = mutableStateOf("Разрешите камеру на телефоне")
+ val cameraJson = mutableStateOf("{}")
  val screenRunning = mutableStateOf(false)
  val screenStatus = mutableStateOf("Для показа экрана нужно разрешение Android")
  val gesturesReady = mutableStateOf(false)

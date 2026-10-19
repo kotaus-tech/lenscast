@@ -12,7 +12,7 @@ import android.util.Rational
 internal data class CameraStreamCandidate(val width: Int,val height: Int,val minFrameNanos: Long)
 internal data class CameraControls(
  val aeModes: List<Int>,val afModes: List<Int>,val awbModes: List<Int>,
- val zoom: Range<Float>?,val minimumFocusDiopters: Float?,
+ val zoom: Range<Float>?,val activeArray: android.graphics.Rect?,val minimumFocusDiopters: Float?,
  val compensation: Range<Int>?,val compensationStep: Rational?,
  val aeLock: Boolean,val awbLock: Boolean,val flash: Boolean,
  val videoStabilization: List<Int>,val opticalStabilization: List<Int>,
@@ -67,7 +67,7 @@ internal object CameraCatalog {
     aeModes=c.get(C.CONTROL_AE_AVAILABLE_MODES)?.toList().orEmpty(),
     afModes=c.get(C.CONTROL_AF_AVAILABLE_MODES)?.toList().orEmpty(),
     awbModes=c.get(C.CONTROL_AWB_AVAILABLE_MODES)?.toList().orEmpty(),
-    zoom=c.get(C.CONTROL_ZOOM_RATIO_RANGE),minimumFocusDiopters=c.get(C.LENS_INFO_MINIMUM_FOCUS_DISTANCE),
+    zoom=c.get(C.CONTROL_ZOOM_RATIO_RANGE) ?: c.get(C.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM)?.let { Range(1f,it.coerceAtLeast(1f)) },activeArray=c.get(C.SENSOR_INFO_ACTIVE_ARRAY_SIZE),minimumFocusDiopters=c.get(C.LENS_INFO_MINIMUM_FOCUS_DISTANCE),
     compensation=c.get(C.CONTROL_AE_COMPENSATION_RANGE),compensationStep=c.get(C.CONTROL_AE_COMPENSATION_STEP),
     aeLock=c.get(C.CONTROL_AE_LOCK_AVAILABLE)==true,awbLock=c.get(C.CONTROL_AWB_LOCK_AVAILABLE)==true,
     flash=c.get(C.FLASH_INFO_AVAILABLE)==true,

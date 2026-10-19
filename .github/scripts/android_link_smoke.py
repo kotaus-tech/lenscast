@@ -54,7 +54,7 @@ def wait_type(stream, kind):
     raise AssertionError('Ожидаемый ответ не получен')
 
 
-def start(apk):
+def start(apk, mode="Экран"):
     # Cold AVD package installation can exceed 30 seconds under hosted-runner load.
     # This is not a transport timeout; all other adb operations keep their limit.
     adb('install', '-r', apk, timeout=120)
@@ -62,6 +62,12 @@ def start(apk):
     if sdk >= 33:
         adb('shell', 'pm', 'grant', 'ru.lenscast', 'android.permission.POST_NOTIFICATIONS')
     adb('shell', 'am', 'start', '-W', '-n', 'ru.lenscast/.MainActivity')
+    if mode == 'Веб-камера':
+        for _ in range(10):
+            card = next((n for n in ui().iter('node') if n.get('text', '').endswith('Веб-камера')), None)
+            if card is not None and tap_node(card): break
+            adb('shell', 'input', 'swipe', '500', '500', '500', '1550', '300')
+        else: raise AssertionError('Не найдена карточка выбора веб-камеры')
     for _ in range(6):
         root = ui()
         start = next((n for n in root.iter('node') if n.get('text') == 'Старт'), None)
@@ -258,11 +264,11 @@ def gesture_regression(fixture):
         print('Пройдено: настоящий Android OnClick/ACTION_UP после короткого тапа, без OnLongClick')
 
         touch('down')
-        for _ in range(6):
+        for _ in range(16):
             time.sleep(0.2); touch('move')  # Stationary desktop heartbeat must NOT cancel a stroke.
         touch('up')
         clicks, holds, ups, moves, duration, active = settled()
-        assert clicks == 1 and holds == 1 and ups == 2 and active == 0 and duration >= 800, 'Удержание или отпускание сломано'
+        assert clicks == 1 and holds == 1 and ups == 2 and active == 0 and duration >= 2800, 'Удержание или отпускание сломано'
         print('Пройдено: неподвижное удержание и heartbeat дают один OnLongClick и реальный ACTION_UP')
 
         touch('down'); time.sleep(0.05)
@@ -352,6 +358,118 @@ def screen_smoke(apk, fixture):
     print('Пройдено: переподключение сохраняет захват, но меняет и проверяет билет видео')
 
 
+def camera_smoke(apk):
+    start(apk, mode='Веб-камера')
+    adb('shell', 'pm', 'grant', 'ru.lenscast', 'android.permission.CAMERA')
+    for _ in range(12):
+        node = next((n for n in ui().iter('node') if n.get('text') == 'Запустить камеру' and n.get('enabled') == 'true'), None)
+        if node is not None and tap_node(node):
+            break
+        adb('shell', 'input', 'swipe', '500', '1550', '500', '500', '300')
+    else:
+        raise AssertionError('Кнопка запуска камеры недоступна')
+
+    with ControlSession() as control:
+        assert control.ready['mode'] == 'Веб-камера'
+        ticket = control.ready['videoTicket']
+        with attach_video(ticket) as video:
+            # Drain concurrently: UI/metadata operations must not back up the video socket.
+            done = threading.Event()
+            packets = []
+            received = [0]
+            failure = []
+            def drain():
+                try:
+                    while not done.is_set():
+                        kind, body = video_packet(video)
+                        packets.append((kind, len(body)))
+                        if kind in (1, 2): received[0] += 1
+                        del packets[:-300]
+                except Exception as e:
+                    if not done.is_set(): failure.append(e)
+            thread = threading.Thread(target=drain, daemon=True)
+            thread.start()
+            try:
+                def state(predicate=lambda c: c.get('ready'), timeout=25):
+                    deadline = time.monotonic()+timeout
+                    while time.monotonic()<deadline:
+                        message = read(control)
+                        if message.get('type') == 'telemetry':
+                            assert not message['screen'], 'Режим камеры запустил MediaProjection'
+                            c = message.get('camera', {})
+                            if predicate(c): return c
+                    raise AssertionError('Камера не выдала ожидаемое состояние')
+                c = state()
+                assert c['modes'] and c['cameras'] and any(k == 0 for k, _ in packets) and any(k == 2 for k, _ in packets), 'Нет настоящих конфигурации и ключевого кадра камеры'
+                assert len(json.dumps(c).encode()) < 60000, 'Каталог не помещается в управляющий кадр'
+                print('Пройдено: Camera2 → поверхность MediaCodec → настоящий Annex B; MediaProjection не запущен')
+                controls = {item['key']: item for item in c['controls']}
+                for key in ('zoom', 'ev', 'aeLock', 'awbLock', 'awbMode', 'focusMode', 'torch'):
+                    if key not in controls: continue
+                    item = controls[key]
+                    value = False if item.get('boolean') else item['values'][-1] if 'values' in item else item['min']
+                    send(control, dict(type='cameraSet', controls={key: value}))
+                    c = state(lambda s: s.get('ready') and any(i.get('key') == key and i.get('value') == value for i in s.get('controls', [])))
+                # Invalid input must leave capture alive and must not be persisted.
+                send(control, dict(type='cameraSet', controls={'несуществующий': 1}))
+                state(lambda s: s.get('ready') and s.get('status', '').startswith('Настройка не применена'))
+                send(control, dict(type='cameraSet', reset=True))
+                c = state()
+                print('Пройдено: доступные Camera2-параметры применяются; неверный параметр не ломает поток; сброс работает')
+                old_id = c['cameraId']
+                mode = next((m for m in reversed(c['modes']) if m['id'] != c['mode']), None)
+                if mode:
+                    send(control, dict(type='cameraSet', mode=mode['id']))
+                    c = state(lambda s: s.get('ready') and s.get('mode') == mode['id'])
+                other = next((camera for camera in c['cameras'] if camera['id'] != old_id), None)
+                if other:
+                    send(control, dict(type='cameraSet', cameraId=other['id']))
+                    c = state(lambda s: s.get('ready') and s.get('cameraId') == other['id'])
+                send(control, dict(type='cameraSet', rotation=180, mirror=True))
+                state(lambda s: s.get('ready') and s.get('rotation') == 180 and s.get('mirror'))
+                print('Пройдено: реальная пересборка сессии при смене режима/модуля, поворот и отражение')
+                # Start with the activity visible, then exercise the real power key.
+                before_sleep = received[0]
+                adb('shell', 'input', 'keyevent', '223')  # KEYCODE_SLEEP
+                time.sleep(3)
+                c = state()
+                assert not failure and received[0] > before_sleep+2, 'Камера перестала выдавать видео с выключенным дисплеем'
+                adb('shell', 'input', 'keyevent', '224')  # KEYCODE_WAKEUP
+                adb('shell', 'wm', 'dismiss-keyguard')
+                print('Пройдено: камера продолжает выдавать кадры с выключенным экраном AVD')
+            finally:
+                done.set()
+                video.shutdown(socket.SHUT_RDWR)
+                thread.join(timeout=3)
+        saved_id, saved_mode = c['cameraId'], c['mode']
+    time.sleep(1)
+    with ControlSession() as control:
+        assert control.ready['videoTicket'] != ticket
+        with attach_video(control.ready['videoTicket']) as video:
+            wait_key(video)
+        send(control, dict(type='stop'))
+    # Recreate service and verify successful settings survive, without remembering a PC.
+    time.sleep(1)
+    start(apk, mode='Веб-камера')
+    for _ in range(10):
+        node = next((n for n in ui().iter('node') if n.get('text') == 'Запустить камеру'), None)
+        if node is not None and tap_node(node): break
+        adb('shell', 'input', 'swipe', '500', '1550', '500', '500', '300')
+    else: raise AssertionError('Камера не может быть запущена повторно')
+    with ControlSession() as control:
+        with attach_video(control.ready['videoTicket']) as video:
+            wait_key(video)
+        for _ in range(20):
+            message = read(control)
+            if message.get('type') == 'telemetry' and message.get('camera', {}).get('ready'):
+                saved = message['camera']
+                assert saved['cameraId'] == saved_id and saved['mode'] == saved_mode and saved['rotation'] == 180 and saved['mirror'], 'Параметры камеры не восстановлены'
+                break
+        else: raise AssertionError('Нет подтверждения повторного запуска камеры')
+        send(control, dict(type='stop'))
+    print('Пройдено: переподключение камеры, отзыв билета, остановка и восстановление настроек после нового старта')
+
+
 def main():
     apk, legacy, fixture = sys.argv[1:4]
     remembered = exercise(apk)
@@ -371,6 +489,7 @@ def main():
     exercise(apk)  # No uninstall/data reset: migration must repair the old key.
     print('Пройдено: обновление поверх старого APK исправляет TLS без удаления данных')
     screen_smoke(apk, fixture)
+    camera_smoke(apk)
 
 
 if __name__ == '__main__':

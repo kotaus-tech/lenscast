@@ -73,7 +73,7 @@ internal sealed class VideoReceiver:IDisposable {
       }
      }
     } catch(OperationCanceledException) when(ct.IsCancellationRequested) { break; }
-    catch(Exception e) { Log.Write("Видеоканал прерван",e); status("Видеоканал восстанавливается. Если экран не разрешён — нажмите «Разрешить показ экрана» на телефоне."); }
+    catch(Exception e) { Log.Write("Видеоканал прерван",e); status("Видеоканал восстанавливается. Проверьте запуск выбранного режима на телефоне."); }
     finally { client=null; }
     await Task.Delay(500,ct);
    }
@@ -119,7 +119,7 @@ internal sealed class VideoReceiver:IDisposable {
      Log.Write("Ошибка декодирования видео",e);
      if(decoder?.UsingDevice==true) { software=true; status("Аппаратный декодировщик недоступен · используем процессор"); }
      else if(codec==2) { SelectCodec(1); csd=null; software=false; status("HEVC недоступен · возвращаемся к H.264"); }
-     else status("Не удалось декодировать экран. Перезапустите показ экрана на телефоне.");
+     else status("Не удалось декодировать изображение. Перезапустите передачу на телефоне.");
      decoder?.Dispose(); decoder=null; keyNeeded=true; RequestKey();
     }
    }

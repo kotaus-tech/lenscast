@@ -83,6 +83,7 @@ jobs:
           arch: x86_64
           profile: pixel_2
           ram-size: 2048M
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back emulated -camera-front emulated
           emulator-boot-timeout: 300
           script: python3 .github/scripts/android_link_smoke.py artifacts/android/app-release.apk artifacts/android/tls-legacy.apk artifacts/android/gesture-fixture-release.apk
       - name: Журнал Android при сбое

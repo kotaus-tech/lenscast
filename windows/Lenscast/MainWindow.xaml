@@ -24,9 +24,24 @@
    <Border Grid.Row="2" Style="{StaticResource Card}" Margin="0,8,0,0"><StackPanel><TextBlock x:Name="ScreenTelemetry" Text="Подключите телефон"/><TextBlock x:Name="VideoStats" Foreground="#9A9AA8"/><Button Content="Остановить на телефоне" Click="Stop_Click" HorizontalAlignment="Left"/></StackPanel></Border>
   </Grid></TabItem>
   <TabItem Header="Веб-камера"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="0,20,8,0">
-  <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="Состояние телефона" FontSize="20"/><TextBlock x:Name="CameraTelemetry" Text="Подключите телефон"/></StackPanel></Border>
-  <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="Камера телефона" FontSize="28"/><TextBlock Text="Передача с камеры пока недоступна в этой сборке." Foreground="#9A9AA8"/><CheckBox Content="Предпросмотр" IsEnabled="False"/></StackPanel></Border>
-  <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="Изображение и качество" FontSize="20"/><TextBlock Text="После подключения камеры здесь будут только поддерживаемые ею модули, разрешения и частоты кадров."/><Expander Header="Фокус, экспозиция и баланс белого"><TextBlock Text="Возможности будут получены от телефона, без фиксированных списков." Margin="8,16"/></Expander><Expander Header="Профи"><TextBlock Text="Дополнительные параметры будут доступны при поддержке камерой." Margin="8,16"/></Expander></StackPanel></Border>
+   <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="Состояние телефона" FontSize="20"/><TextBlock x:Name="CameraTelemetry" Text="Подключите телефон"/></StackPanel></Border>
+   <Border Style="{StaticResource Card}"><StackPanel>
+    <TextBlock Text="Камера телефона" FontSize="28"/><TextBlock x:Name="CameraStatus" Text="На телефоне выберите «Веб-камера» и нажмите «Запустить камеру»."/>
+    <Border Background="#0E0E11" CornerRadius="12" Height="320" ClipToBounds="True" Margin="0,8"><Image x:Name="CameraPreview" Stretch="Uniform"/></Border>
+    <TextBlock x:Name="CameraStats" Foreground="#9A9AA8"/>
+    <TextBlock Text="Это предпросмотр Lenscast. Системная виртуальная камера для других приложений — блок D." Foreground="#F0B866"/>
+   </StackPanel></Border>
+   <Border Style="{StaticResource Card}"><StackPanel x:Name="CameraSelectors" IsEnabled="False">
+    <TextBlock Text="Изображение и качество" FontSize="20"/>
+    <TextBlock Text="Модуль камеры"/><ComboBox x:Name="CameraDevices" DisplayMemberPath="Label" SelectionChanged="CameraDevice_Changed"/>
+    <TextBlock Text="Разрешение и частота кадров"/><ComboBox x:Name="CameraModes" DisplayMemberPath="Label" SelectionChanged="CameraMode_Changed"/>
+    <TextBlock Text="Список получен от камеры и кодировщика. Выбранное сочетание подтверждается только после появления кадров; фактическая частота показана отдельно." Foreground="#9A9AA8"/>
+    <TextBlock Text="Поворот изображения"/><ComboBox x:Name="CameraRotation" SelectionChanged="CameraRotation_Changed"><ComboBoxItem Content="0°" Tag="0"/><ComboBoxItem Content="90°" Tag="90"/><ComboBoxItem Content="180°" Tag="180"/><ComboBoxItem Content="270°" Tag="270"/></ComboBox>
+    <CheckBox x:Name="CameraMirror" Content="Отразить изображение" Click="CameraMirror_Click"/>
+    <Expander Header="Фокус, экспозиция и баланс белого"><StackPanel x:Name="CameraControls" Margin="8,16"/></Expander>
+    <Expander Header="Профи"><StackPanel x:Name="CameraProControls" Margin="8,16"/></Expander>
+    <Button Content="Сбросить настройки этой камеры" Click="CameraReset_Click" HorizontalAlignment="Left"/>
+   </StackPanel></Border>
   </StackPanel></ScrollViewer></TabItem>
   <TabItem Header="Настройки"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="0,20,8,0">
    <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="Доверие и конфиденциальность" FontSize="22"/><TextBlock Text="Забыть телефон: удаляет сохранённые токен и отпечаток. При следующем подключении понадобится код."/><Button Content="Забыть телефон" Click="Forget_Click" HorizontalAlignment="Left"/></StackPanel></Border>

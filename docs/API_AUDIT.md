@@ -228,3 +228,61 @@ https://github.com/aosp-mirror/platform_frameworks_base/blob/android-16.0.0_r1/c
   Длительность 0 разрешена SDK как неизвестная (в частности без MANUAL_SENSOR).
   Metadata не доказывает поддержку session + encoder и фактический FPS: каталог
   только для кандидатов, не включён в UI и не подменяет проверку потоком.
+
+## C · Camera2 capture/control · 0.3.0
+
+Проверено перед реализацией по исходникам SDK Android 16:
+https://github.com/aosp-mirror/platform_frameworks_base/tree/android-16.0.0_r1/core/java/android/hardware/camera2
+
+- CameraManager.openCamera(String,Executor,StateCallback); CameraDevice StateCallback
+  onOpened/onDisconnected/onError/onClosed, createCaptureRequest(TEMPLATE_RECORD),
+  createCaptureSession(SessionConfiguration), isSessionConfigurationSupported.
+- params.SessionConfiguration(SESSION_REGULAR,List<OutputConfiguration>,Executor,
+  CameraCaptureSession.StateCallback), OutputConfiguration(Surface). Если старый HAL
+  не реализует query и бросает UnsupportedOperationException — обязательно ждём
+  настоящие onConfigured, CaptureCallback.onCaptureCompleted и ключевой кадр.
+- CameraCaptureSession.setRepeatingRequest/capture/close; CaptureRequest.Builder
+  addTarget/set/build. Повторное открытие ждёт onClosed даже при остановке во время
+  незавершённого openCamera. HandlerThread жив до последнего onClosed.
+- Все используемые request keys и типы сверены в CaptureRequest.java:
+  CONTROL_AE_TARGET_FPS_RANGE (Range<Integer>), CONTROL_AE_MODE/LOCK,
+  CONTROL_AF_MODE/TRIGGER, LENS_FOCUS_DISTANCE, CONTROL_ZOOM_RATIO,
+  SCALER_CROP_REGION, CONTROL_AE_EXPOSURE_COMPENSATION, CONTROL_AWB_MODE/LOCK,
+  FLASH_MODE, CONTROL_VIDEO_STABILIZATION_MODE, LENS_OPTICAL_STABILIZATION_MODE,
+  SENSOR_SENSITIVITY (Integer), SENSOR_EXPOSURE_TIME/FRAME_DURATION (Long).
+  Доступность каждого проверяется через availableCaptureRequestKeys. Диапазоны —
+  из CameraCharacteristics, включая fallback SCALER_AVAILABLE_MAX_DIGITAL_ZOOM и
+  SENSOR_INFO_ACTIVE_ARRAY_SIZE для цифрового центрированного crop на API30.
+- CameraMetadata.java: значения AF OFF/AUTO/MACRO/CONTINUOUS_VIDEO/CONTINUOUS_PICTURE/
+  EDOF; AWB OFF/AUTO/INCANDESCENT/FLUORESCENT/WARM_FLUORESCENT/DAYLIGHT/
+  CLOUDY_DAYLIGHT/TWILIGHT/SHADE; AE OFF/ON; FLASH OFF/TORCH; AF_TRIGGER_START;
+  EIS/OIS OFF. Числа в русских подписях Windows взяты отсюда, не из догадок.
+- CaptureResult.SENSOR_EXPOSURE_TIME/SENSOR_SENSITIVITY: фактические значения HAL;
+  фактическая частота — число onCaptureCompleted / monotonic interval, не обещание
+  точного FPS из диапазона. Метка видеопакета камеры — monotonic arrival кодированного
+  кадра; не используется для заявления о сквозной задержке или camera sensor clock.
+- MediaCodec/MediaCodecList/VideoCapabilities/MediaFormat/Surface — тот же проверенный
+  в B путь; камера выдаёт Surface прямо кодировщику, без CPU ImageReader/YUV-копии.
+  Аппаратный AVC/HEVC при наличии; обязательный AVC и software fallback (включая AVD).
+- FGS camera type, permissions CAMERA/FOREGROUND_SERVICE_CAMERA, отдельный notification
+  channel; служба запускается с видимого Activity после разрешения, START_NOT_STICKY.
+  Не стартует из BOOT_COMPLETED, фоновой команды ПК или заблокированного Activity.
+- PowerManager.PARTIAL_WAKE_LOCK, newWakeLock/acquire/release/isHeld:
+  https://github.com/aosp-mirror/platform_frameworks_base/blob/android-16.0.0_r1/core/java/android/os/PowerManager.java
+  WAKE_LOCK нужен только камере; освобождается при остановке/ошибке. Это не обход
+  camera privacy/keyguard/OEM. Чёрный fallback — Activity с screenBrightness 0.01,
+  FLAG_KEEP_SCREEN_ON, без снятия блокировки/администратора устройства:
+  https://github.com/aosp-mirror/platform_frameworks_base/blob/android-16.0.0_r1/core/java/android/view/WindowManager.java
+- Общий жизненный цикл следует официальному Camera2 controller sample:
+  https://github.com/android/camera-samples/blob/main/core-camera/src/main/java/com/android/camera/core/camera2/BaseCamera2Controller.kt
+
+Windows: стандартный WPF, никаких новых COM/native API в C. LayoutTransform,
+TransformGroup.Children, ScaleTransform(double,double), RotateTransform(double),
+ToggleButton.IsThreeState / nullable IsChecked сверены в официальном dotnet/wpf:
+https://github.com/dotnet/wpf/tree/main/src/Microsoft.DotNet.Wpf/src
+Поворот/отражение пока применяются к предпросмотру, не к Annex B. В блоке D эти
+метаданные должны также применяться к NV12 перед virtual-camera output.
+
+CI: отдельные эмулированные front/back камеры, настоящий Camera2 + MediaCodec;
+KEYCODE_SLEEP=223/WAKEUP=224 сверены в SDK KeyEvent.java. Это не доказательство
+работы ColorOS/MIUI, 10+ минут под keyguard или MF virtual camera.

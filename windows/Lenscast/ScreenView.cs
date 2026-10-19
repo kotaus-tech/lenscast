@@ -31,6 +31,7 @@ public partial class MainWindow {
   if(frame is null) return;
   using(frame) {
    if(closing) return;
+   if(connection.Mode=="Веб-камера") { PresentCameraFrame(frame); return; }
    imageWidth=frame.Width; imageHeight=frame.Height;
    if(bitmap is null || bitmap.PixelWidth!=frame.Width || bitmap.PixelHeight!=frame.Height) {
     bitmap=new WriteableBitmap(frame.Width,frame.Height,96,96,PixelFormats.Bgra32,null);

@@ -88,3 +88,41 @@ createVirtualDisplay на том же токене. Сервер/ПК имеют
 В текущем блоке синхронизация по минимальному RTT уже реализована; в интерфейсе
 показывается только «отклик связи», то есть RTT управления. Телефон закрывает
 активный сеанс без команд ПК более 8 с. Это не измерение сквозной видеозадержки.
+
+## C · камера (0.3.0)
+
+`ready.mode` равен «Веб-камера»: тот же control-scoped videoTicket и LCV1-канал;
+трансляция экрана и камера не работают одновременно. Видео камеры кодируется в
+sensor-native размерах, configuration/CSD и IDR приходят заново после смены сессии.
+Временная метка — monotonic time получения закодированного кадра на телефоне,
+не raw SENSOR_TIMESTAMP и не измеренная сквозная задержка.
+
+`telemetry.camera`: `running`, `ready`, русский `status`, `cameraId`, `mode`,
+`rotation` (0/90/180/270), `mirror`, `actualFps`, `actualIso`, `actualExposureMs`,
+`codec`; `cameras[{id,label}]`; `modes[{id,width,height,low,high}]`;
+`controls[{key,label,value?, min?,max?,step?,values?,boolean?}]`.
+Модули перечисляются только среди прямо открываемых ID с совместимыми metadata
+режимами AVC. Список `modes` — кандидаты Camera2 + VideoCapabilities (не более 200),
+не обещание успешной сессии/OEM FPS. `ready=true` требует настоящих capture callback
+и encoded keyframe; actualFps измерен. Metadata старой камеры при остановке может
+оставаться, но `running=false` запрещает действия UI. Структура ограничена framing
+64 КиБ; подписи не содержат pairing codes/tokens или содержимого экрана.
+
+Команда `cameraSet`: необязательные `cameraId`, `mode` из текущих списков,
+`rotation`, `mirror`, `reset:true`, `controls:{key:value}`. Модуль/reset инициируют
+полную пересборку со своими настройками; параметры разных модулей в одной команде
+не смешиваются. Ключи controls: `zoom`, `focusMode` (CameraMetadata AF enum),
+`focus` (диоптрии, применяется при AF OFF), `ev` (целый шаг EV), `aeLock`,
+`awbMode` (AWB enum), `awbLock`, `torch`, `videoStabilization`,
+`opticalStabilization`, `manualExposure`, `iso` (целое), `exposureMs`.
+Доступны только объявленные ключи; сервер проверяет тип/диапазон/request keys.
+Одновременный EIS и OIS отклоняется. Manual exposure ограничена периодом
+выбранного FPS; при auto ISO/выдержка остаются у HAL. Успешно принятые настройки
+сохраняются в приватных prefs телефона, отдельный профиль на cameraId.
+
+Поворот/отражение — metadata для preview (и будущего D), не изменение Annex B.
+Камера стартует только локально из видимого Activity после CAMERA permission;
+команда ПК не может открыть камеру в фоне. Разрыв управления отзывает video ticket,
+но не останавливает явно запущенную пользователем camera FGS. «Стоп» связи закрывает
+и camera, и screen FGS. Watchdog кадров камеры — 10 с, после него локальный повторный
+старт/чёрный OEM-fallback, не попытка обхода privacy.

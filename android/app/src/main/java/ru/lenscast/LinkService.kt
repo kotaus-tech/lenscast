@@ -182,7 +182,8 @@ class LinkService : Service() {
     lastCommand = SystemClock.elapsedRealtime()
     when (m.optString("type")) {
      "ping" -> send(output, JSONObject().put("type", "pong").put("sent", m.optLong("sent")).put("phoneUs", SystemClock.elapsedRealtimeNanos()/1000))
-     "videoCodec" -> ScreenService.preferCodec(m.optInt("codec",1))
+     "videoCodec" -> if(State.mode.value=="Экран") ScreenService.preferCodec(m.optInt("codec",1)) else CameraService.preferCodec(m.optInt("codec",1))
+     "cameraSet" -> if(State.mode.value!="Веб-камера" || !CameraService.command(m)) send(output,JSONObject().put("type","notice").put("message","На телефоне выберите «Веб-камера» и нажмите «Запустить камеру»."))
      "keyframe" -> VideoHub.requestKey?.invoke()
      "touch", "navigation" -> if(!State.screenRunning.value || !GestureService.command(m)) {
       send(output,JSONObject().put("type","notice").put("message","Разрешите показ экрана и включите «Lenscast · управление» в специальных возможностях телефона."))
@@ -212,8 +213,8 @@ class LinkService : Service() {
   VideoHub.checkHealth()
   val now=SystemClock.elapsedRealtime(); val elapsed=(now-telemetryAt).coerceAtLeast(1)
   val count=VideoHub.frames; val size=VideoHub.bytes
-  val fps=if(telemetryAt==0L || !State.screenRunning.value) 0 else ((count-telemetryFrames)*1000/elapsed).toInt()
-  val bitrate=if(telemetryAt==0L || !State.screenRunning.value) 0 else (size-telemetryBytes)*8000/elapsed
+  val fps=if(telemetryAt==0L || (!State.screenRunning.value && !State.cameraRunning.value)) 0 else ((count-telemetryFrames)*1000/elapsed).toInt()
+  val bitrate=if(telemetryAt==0L || (!State.screenRunning.value && !State.cameraRunning.value)) 0 else (size-telemetryBytes)*8000/elapsed
   telemetryAt=now; telemetryFrames=count; telemetryBytes=size
   val b = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
   val level = b?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
@@ -226,7 +227,7 @@ class LinkService : Service() {
    .put("charging", status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL)
    .put("temperature", (b?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0) ?: 0)/10.0)
    .put("thermal", getSystemService(PowerManager::class.java).currentThermalStatus)
-   .put("network", band).put("rssi", if (usb) 0 else info.rssi).put("fps", fps).put("bitrate", bitrate).put("dropped", VideoHub.dropped).put("screen",State.screenRunning.value).put("gestures",State.gesturesReady.value)
+   .put("network", band).put("rssi", if (usb) 0 else info.rssi).put("fps", fps).put("bitrate", bitrate).put("dropped", VideoHub.dropped).put("screen",State.screenRunning.value).put("gestures",State.gesturesReady.value).put("mode",State.mode.value).put("camera",if(State.mode.value=="Веб-камера") JSONObject(State.cameraJson.value).put("running",State.cameraRunning.value).put("status",State.cameraStatus.value) else JSONObject())
  }
  private fun advertise() {
   nsd = getSystemService(NsdManager::class.java)
@@ -258,7 +259,7 @@ class LinkService : Service() {
    registration?.let { runCatching { nsd?.unregisterService(it) } }
   }
   pool.shutdownNow()
-  stopService(Intent(this,ScreenService::class.java)); GestureService.release()
+  stopService(Intent(this,CameraService::class.java)); stopService(Intent(this,ScreenService::class.java)); GestureService.release()
   State.wifiReady.value=false; State.discoveryWarning.value=""; State.running.value = false; State.code.value = ""; State.status.value = failure ?: "Связь остановлена"
   State.log(this, "Сервер остановлен"); super.onDestroy()
  }

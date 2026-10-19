@@ -27,6 +27,20 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 
 class MainActivity : ComponentActivity() {
+ private var black by mutableStateOf(false)
+ private val cameraPermission=registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+  if(granted) startCamera() else State.cameraStatus.value="Камера не разрешена. Разрешите её в настройках приложения."
+ }
+ private fun startCamera() {
+  try { startForegroundService(Intent(this,CameraService::class.java)) }
+  catch(e: Exception) { State.cameraStatus.value="Камера не запущена. Откройте приложение и попробуйте ещё раз."; State.log(this,"Запуск камеры",e) }
+ }
+ private fun blackout(value: Boolean) {
+  black=value
+  window.attributes=window.attributes.apply { screenBrightness=if(value) 0.01f else -1f }
+  if(value) window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) else window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+ }
+
  private val screenPermission=registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
   if(result.resultCode==Activity.RESULT_OK && result.data!=null) {
    try { startForegroundService(Intent(this,ScreenService::class.java).putExtra("consent",result.data)) }
@@ -47,6 +61,15 @@ class MainActivity : ComponentActivity() {
   super.onCreate(savedInstanceState)
   setContent {
    MaterialTheme(colorScheme = darkColorScheme(primary=Color(0xFF8F7CF0), background=Color(0xFF0E0E11), surface=Color(0xFF17171C), onSurface=Color(0xFFECECF1))) {
+    if(black && State.cameraRunning.value) {
+     Surface(Modifier.fillMaxSize(),color=Color.Black) {
+      Box(Modifier.fillMaxSize().navigationBarsPadding().padding(24.dp),contentAlignment=androidx.compose.ui.Alignment.BottomCenter) {
+       TextButton(onClick={ blackout(false) },modifier=Modifier.heightIn(min=48.dp)) { Text("Вернуться",color=Color(0xFF9A9AA8)) }
+      }
+     }
+     return@MaterialTheme
+    }
+    LaunchedEffect(State.cameraRunning.value) { if(!State.cameraRunning.value && black) blackout(false) }
     var settings by remember { mutableStateOf(false) }
     Surface(Modifier.fillMaxSize(), color=MaterialTheme.colorScheme.background) {
      Column(Modifier.statusBarsPadding().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement=Arrangement.spacedBy(16.dp)) {
@@ -110,7 +133,18 @@ class MainActivity : ComponentActivity() {
         OutlinedButton(onClick={ allowScreen() },enabled=State.running.value && !State.screenRunning.value,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text("Разрешить показ экрана") }
         Text(if(State.gesturesReady.value) "Управление с ПК разрешено" else "Для жестов с ПК включите «Lenscast · управление» в специальных возможностях. Чтение текста и содержимого окон не используется.")
         OutlinedButton(onClick={ safeOpen(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text("Разрешить управление") }
-       } else Text("Передача с камеры появится в блоке C.", color=Color(0xFFF0B866))
+       } else Panel("Камера телефона") {
+        Text(State.cameraStatus.value)
+        Text("Разрешение камеры нужно только здесь. Звук не захватывается. Модуль, качество и параметры выбираются на ПК.")
+        Button(onClick={
+         if(State.cameraRunning.value) stopService(Intent(this@MainActivity,CameraService::class.java))
+         else if(androidx.core.content.ContextCompat.checkSelfPermission(this@MainActivity,Manifest.permission.CAMERA)==android.content.pm.PackageManager.PERMISSION_GRANTED) startCamera()
+         else cameraPermission.launch(Manifest.permission.CAMERA)
+        },enabled=State.running.value,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text(if(State.cameraRunning.value) "Остановить камеру" else "Запустить камеру") }
+        Text("Можно заблокировать телефон. Если прошивка останавливает камеру при блокировке, оставьте Lenscast на чёрном экране.")
+        OutlinedButton(onClick={ blackout(true) },enabled=State.cameraRunning.value,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text("Чёрный экран") }
+        Text("Виртуальная камера для приложений Windows появится в блоке D. Сейчас доступен предпросмотр Lenscast.",color=Color(0xFFF0B866))
+       }
        Panel("Состояние телефона") { Text(State.telemetry.value) }
       }
      }

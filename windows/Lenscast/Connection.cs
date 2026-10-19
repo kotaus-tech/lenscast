@@ -17,6 +17,7 @@ internal sealed class Connection : IDisposable {
   internal volatile bool Ready;
  }
  private Session? current;
+ internal volatile string Mode="";
  internal bool IsReady=>current?.Ready==true;
  internal event Action? LinkLost;
  internal event Action<string>? Status;
@@ -77,11 +78,12 @@ internal sealed class Connection : IDisposable {
        if (reply.TryGetProperty("token", out var token)) TrustStore.Save(new(address, fingerprint, token.GetString()!));
        else if (trust is not null) TrustStore.Save(trust with { Address=address });
       }
+      Mode=reply.GetProperty("mode").GetString() ?? "";
       session.Ready=true;
       first = false;
       Report(session, "Подключён: " + reply.GetProperty("name").GetString() + (usb ? " · USB" : " · Wi-Fi"));
       Log.Write("Телефон подключён");
-      using var video = reply.TryGetProperty("videoTicket",out var vt) && reply.GetProperty("mode").GetString()=="Экран"
+      using var video = reply.TryGetProperty("videoTicket",out var vt)
        ? new VideoReceiver(address,usb,fingerprint,vt.GetString()!,m=>Send(session,m,ct),f=> {
         if(ReferenceEquals(current,session) && !ct.IsCancellationRequested && Frame is {} render) render(f); else f.Dispose();
        },text=>{ if(ReferenceEquals(current,session) && !ct.IsCancellationRequested) VideoStatus?.Invoke(text); }) : null;

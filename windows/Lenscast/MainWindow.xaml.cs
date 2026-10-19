@@ -21,7 +21,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow {
   InitializeComponent();
   gestureHeartbeat.Tick+=(_,_)=>{ if(pointerDown) Touch("move",lastX,lastY); }; gestureHeartbeat.Start();
   connection.LinkLost+=()=>Dispatcher.InvokeAsync(()=> {
-   canControl=false; CancelPointer(); Interlocked.Exchange(ref pendingFrame,null)?.Dispose(); Preview.Source=null; if(fullImage!=null) fullImage.Source=null; bitmap=null; VideoHint.Visibility=Visibility.Visible;
+   CameraLost(); canControl=false; CancelPointer(); Interlocked.Exchange(ref pendingFrame,null)?.Dispose(); Preview.Source=null; if(fullImage!=null) fullImage.Source=null; bitmap=null; VideoHint.Visibility=Visibility.Visible;
   });
   connection.Frame+=ReceiveFrame;
   connection.VideoStatus+=s=>Dispatcher.InvokeAsync(()=>VideoStats.Text=s);
@@ -44,6 +44,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow {
   if(roundtrip is { } rtt) text+=$"   ·   отклик связи {rtt:F0} мс";
   canControl=t.TryGetProperty("screen",out var screen) && screen.GetBoolean() && t.TryGetProperty("gestures",out var gestures) && gestures.GetBoolean();
   ScreenTelemetry.Text=CameraTelemetry.Text=text;
+  if(t.TryGetProperty("camera",out var camera) && connection.Mode=="Веб-камера") UpdateCamera(camera);
   if(t.TryGetProperty("screen",out var sharing) && !sharing.GetBoolean()) { Preview.Source=null; if(fullImage!=null) fullImage.Source=null; bitmap=null; VideoHint.Text="На телефоне нажмите «Разрешить показ экрана»"; VideoHint.Visibility=Visibility.Visible; }
  }
  private async void Discover_Click(object sender,RoutedEventArgs e) { await Find(false); }
@@ -103,19 +104,19 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow {
     Status.Text="Готовим подключение USB…";
     await UsbDiscovery.Forward(phone.UsbSerial,lifetime.Token);
    }
-   ResetInput(); canControl=false; roundtrip=null; sessionAddress=ip.ToString(); connection.Start(ip.ToString(),Code.Text.Trim(),useUsb); Code.Clear();
+   CameraLost(); ResetInput(); canControl=false; roundtrip=null; sessionAddress=ip.ToString(); connection.Start(ip.ToString(),Code.Text.Trim(),useUsb); Code.Clear();
   } catch(OperationCanceledException) when(lifetime.IsCancellationRequested) { }
   catch(Exception ex) { Log.Write("Не удалось подготовить подключение",ex); Status.Text=ex is UsbDiscoveryException ? ex.Message : "Подключение не удалось. Сохраните журнал в настройках."; }
   finally { if(!closing) ConnectButton.IsEnabled=true; }
  }
- private void Disconnect_Click(object sender,RoutedEventArgs e) { ResetInput(); canControl=false; connection.Dispose(); Preview.Source=null; if(fullImage!=null) fullImage.Source=null; bitmap=null; VideoHint.Visibility=Visibility.Visible; Status.Text="Отключено"; }
- private async void Stop_Click(object sender,RoutedEventArgs e) { try { await connection.Send(new {type="stop"}); connection.Dispose(); Status.Text="Связь остановлена на телефоне"; } catch(Exception ex) { Log.Write("Остановка не доставлена",ex); Status.Text="Не удалось остановить телефон. Нажмите «Стоп» на телефоне."; } }
+ private void Disconnect_Click(object sender,RoutedEventArgs e) { CameraLost(); ResetInput(); canControl=false; connection.Dispose(); Preview.Source=null; if(fullImage!=null) fullImage.Source=null; bitmap=null; VideoHint.Visibility=Visibility.Visible; Status.Text="Отключено"; }
+ private async void Stop_Click(object sender,RoutedEventArgs e) { CameraLost(); try { await connection.Send(new {type="stop"}); connection.Dispose(); Status.Text="Связь остановлена на телефоне"; } catch(Exception ex) { Log.Write("Остановка не доставлена",ex); Status.Text="Не удалось остановить телефон. Нажмите «Стоп» на телефоне."; } }
  private async void Forget_Click(object sender,RoutedEventArgs e) {
   var address=sessionAddress ?? Address.Text.Trim();
   if(!IPAddress.TryParse(address,out var ip)) { Status.Text="Выберите телефон, который нужно забыть."; return; }
   if(IPAddress.IsLoopback(ip)) { Status.Text="Для удаления сопряжения подключите телефон по Wi-Fi."; return; }
   try { await connection.Send(new {type="forget"}); } catch(Exception ex) { Log.Write("Сброс доверия не доставлен",ex); }
-  connection.Dispose(); TrustStore.Forget(address); sessionAddress=null;
+  CameraLost(); connection.Dispose(); TrustStore.Forget(address); sessionAddress=null;
   Status.Text="Телефон забыт. При следующем подключении введите код.";
  }
  private void Log_Click(object sender,RoutedEventArgs e) {

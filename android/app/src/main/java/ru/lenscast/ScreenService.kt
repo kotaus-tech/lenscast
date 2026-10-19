@@ -36,6 +36,7 @@ class ScreenService : Service() {
  private var width=0; private var height=0
  private var sourceWidth=0; private var sourceHeight=0
  private var closed=false
+ private var ownsCapture=false
  private val displays by lazy { getSystemService(DisplayManager::class.java) }
  private val projectionCallback=object: MediaProjection.Callback() {
   override fun onStop() { stopSelf() }
@@ -51,6 +52,7 @@ class ScreenService : Service() {
  override fun onStartCommand(intent: Intent?,flags: Int,startId: Int): Int {
   if(intent?.action=="stop") { stopService(Intent(this,LinkService::class.java)); stopSelf(); return START_NOT_STICKY }
   if(projection!=null || State.screenRunning.value) return START_NOT_STICKY
+  if(State.mode.value!="Экран" || !CaptureOwner.claim("screen")) { State.screenStatus.value="Дождитесь остановки камеры и повторите запуск экрана."; stopSelf(); return START_NOT_STICKY }; ownsCapture=true
   val manager=getSystemService(NotificationManager::class.java)
   manager.createNotificationChannel(NotificationChannel("screen","Показ экрана",NotificationManager.IMPORTANCE_LOW))
   val stop=PendingIntent.getService(this,2,Intent(this,ScreenService::class.java).setAction("stop"),PendingIntent.FLAG_IMMUTABLE)
@@ -172,11 +174,11 @@ class ScreenService : Service() {
   State.screenRunning.value=false
   if(State.screenStatus.value.startsWith("Экран передаётся")) State.screenStatus.value="Показ экрана остановлен. Нажмите «Разрешить показ экрана»."
   handler.post {
-   closed=true; VideoHub.requestKey=null; VideoHub.stopCapture(); GestureService.release()
+   closed=true; if(!ownsCapture) { worker.quitSafely(); return@post }; VideoHub.requestKey=null; VideoHub.stopCapture(); GestureService.release()
    displays.unregisterDisplayListener(displayCallback)
    virtual?.release(); virtual=null; releaseEncoder()
    projection?.unregisterCallback(projectionCallback); projection?.stop(); projection=null
-   worker.quitSafely()
+   CaptureOwner.release("screen"); worker.quitSafely()
   }
   super.onDestroy()
  }
