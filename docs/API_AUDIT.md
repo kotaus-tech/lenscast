@@ -286,3 +286,17 @@ https://github.com/dotnet/wpf/tree/main/src/Microsoft.DotNet.Wpf/src
 CI: отдельные эмулированные front/back камеры, настоящий Camera2 + MediaCodec;
 KEYCODE_SLEEP=223/WAKEUP=224 сверены в SDK KeyEvent.java. Это не доказательство
 работы ColorOS/MIUI, 10+ минут под keyguard или MF virtual camera.
+
+
+## Диагностика C · порядок готовности (0.3.1)
+
+Повторно сверены официальные CameraCaptureSession.CaptureCallback.onCaptureCompleted
+и MediaCodec dequeueOutputBuffer/INFO_OUTPUT_FORMAT_CHANGED/BUFFER_FLAG_KEY_FRAME:
+- https://github.com/aosp-mirror/platform_frameworks_base/blob/android-16.0.0_r1/core/java/android/hardware/camera2/CameraCaptureSession.java
+- https://github.com/aosp-mirror/platform_frameworks_base/blob/android-16.0.0_r1/media/java/android/media/MediaCodec.java
+
+Camera2 metadata callback не задаёт порядок относительно отдельного consumer
+поверхности/MediaCodec output. Handler сериализует исполнение, но не гарантирует,
+что capture callback окажется перед первым encoded IDR. Подтверждения нужно
+запоминать независимо в текущем generation; требование нового CSD/IDR и capture
+после reset сохраняется. Новых системных API для исправления не добавлено.

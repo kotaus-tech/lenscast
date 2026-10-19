@@ -42,7 +42,9 @@ class CameraService: Service() {
  private var encoder: MediaCodec?=null; private var surface: Surface?=null
  private var wake: PowerManager.WakeLock?=null
  private var preferredCodec=1; private var codecId=1
- private var ready=false; private var captured=false; private var lastFrame=0L
+ private val proof=CameraReadiness()
+ private var ready=false; private var lastFrame=0L
+ private var startupAt=0L; private var encodedFrames=0L
  private var measuredAt=0L; private var capturedFrames=0; private var measuredFps=0.0
  private var exposureActual=0L; private var isoActual=0
  private val prefs by lazy { getSharedPreferences("camera",MODE_PRIVATE) }
@@ -149,7 +151,8 @@ class CameraService: Service() {
  }
  private fun restart() {
   if(closed) return
-  generation++; measuredAt=0L; capturedFrames=0; measuredFps=0.0; ready=false; captured=false; waitingOpen=true; lastFrame=SystemClock.elapsedRealtime()
+  generation++; proof.reset(generation); measuredAt=0L; capturedFrames=0; measuredFps=0.0; ready=false; encodedFrames=0; waitingOpen=true; startupAt=SystemClock.elapsedRealtime(); lastFrame=startupAt
+  State.log(this,"Камера · поколение $generation: пересборка сессии")
   session?.runCatching { close() }; session=null
   device?.close(); device=null
   releaseEncoder(); VideoHub.clearFormat()
@@ -162,6 +165,7 @@ class CameraService: Service() {
   try { getSystemService(CameraManager::class.java).openCamera(selected.id,executor,object: CameraDevice.StateCallback() {
    override fun onOpened(camera: CameraDevice) {
     if(closed || epoch!=generation) { camera.close(); return }
+    State.log(this@CameraService,"Камера · поколение $epoch: устройство открыто")
     device=camera
     try { configure(camera,epoch) } catch(e: Exception) { failed(e) }
    }
@@ -197,6 +201,7 @@ class CameraService: Service() {
   val config=SessionConfiguration(SessionConfiguration.SESSION_REGULAR,listOf(OutputConfiguration(surface!!)),executor,object: CameraCaptureSession.StateCallback() {
    override fun onConfigured(value: CameraCaptureSession) {
     if(closed || epoch!=generation) { value.close(); return }
+    State.log(this@CameraService,"Камера · поколение $epoch: сессия настроена")
     session=value
     try { submit() } catch(e: Exception) { failed(e) }
    }
@@ -241,7 +246,8 @@ class CameraService: Service() {
   capture.setRepeatingRequest(builder.build(),object: CameraCaptureSession.CaptureCallback() {
    override fun onCaptureCompleted(session: CameraCaptureSession,request: CaptureRequest,result: TotalCaptureResult) {
     if(closed || epoch!=generation) return
-    captured=true; capturedFrames++
+    if(!proof.captured) State.log(this@CameraService,"Камера · поколение $epoch: первый CaptureResult, IDR уже получен=${proof.keyFrame}")
+    proof.capture(epoch); capturedFrames++; markReady()
     exposureActual=result.get(CaptureResult.SENSOR_EXPOSURE_TIME) ?: 0; isoActual=result.get(CaptureResult.SENSOR_SENSITIVITY) ?: 0
     val now=SystemClock.elapsedRealtime()
     if(now-measuredAt>=1000) { measuredFps=if(measuredAt==0L) 0.0 else capturedFrames*1000.0/(now-measuredAt); measuredAt=now; capturedFrames=0; publish() }
@@ -251,6 +257,13 @@ class CameraService: Service() {
    builder.set(CaptureRequest.CONTROL_AF_TRIGGER,CaptureRequest.CONTROL_AF_TRIGGER_START); capture.capture(builder.build(),null,handler)
   }
  }
+ private fun markReady() {
+  if(ready || !proof.ready) return
+  ready=true; State.cameraStatus.value="Камера передаёт изображение"
+  State.log(this,"Камера · поколение $generation: готова, кадров=$encodedFrames")
+  save(); publish()
+ }
+ private fun diagnostic()="поколение=$generation, capture=${proof.captured}, CSD=${proof.configured}, IDR=${proof.keyFrame}, кадров=$encodedFrames, открытий=$inFlight, сессия=${session!=null}"
  private fun save() { prefs.edit().putString("selected",selected.id).putString("camera:${selected.id}",JSONObject().put("mode",mode.id).put("controls",settings).put("rotation",rotation).put("mirror",mirror).toString()).apply() }
  private fun publish() {
   if(!::selected.isInitialized) return
@@ -281,7 +294,8 @@ class CameraService: Service() {
   }
   val json=JSONObject().put("running",State.cameraRunning.value).put("ready",ready).put("status",State.cameraStatus.value)
    .put("cameraId",selected.id).put("mode",mode.id).put("rotation",rotation).put("mirror",mirror).put("actualFps",measuredFps)
-   .put("actualIso",isoActual).put("actualExposureMs",exposureActual/1e6).put("codec",codecId)
+   .put("actualIso",isoActual).put("actualExposureMs",exposureActual/1e6).put("codec",codecId).put("generation",generation)
+   .put("proof",JSONObject().put("capture",proof.captured).put("config",proof.configured).put("key",proof.keyFrame).put("frames",encodedFrames))
    .put("cameras",JSONArray(cameras.map { JSONObject().put("id",it.id).put("label",(when(it.facing) { CameraCharacteristics.LENS_FACING_BACK->"Задняя"; CameraCharacteristics.LENS_FACING_FRONT->"Фронтальная"; else->"Внешняя" })+" · ${it.focalLengths.joinToString()} мм · модуль ${it.id}") }))
    .put("modes",JSONArray(modes.map { it.json() })).put("controls",controls)
   State.cameraJson.value=json.toString()
@@ -298,6 +312,7 @@ class CameraService: Service() {
        val data=java.io.ByteArrayOutputStream(); java.io.DataOutputStream(data).apply { writeInt(mode.width); writeInt(mode.height) }
        for(key in listOf("csd-0","csd-1")) c.outputFormat.getByteBuffer(key)?.duplicate()?.let { b -> val bytes=ByteArray(b.remaining()); b.get(bytes); data.write(bytes) }
        check(data.size()>8); VideoHub.offer(VideoHub.Packet(0,0,data.toByteArray(),codecId))
+       proof.config(generation); State.log(this@CameraService,"Камера · поколение $generation: получен CSD"); markReady()
       } else if(index>=0) {
        try {
         if(info.size>0 && info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG==0) {
@@ -306,14 +321,17 @@ class CameraService: Service() {
          // Camera sensor/codec timestamps vary by HAL; network presentation uses
          // monotonic arrival time, not an invented cross-clock sensor conversion.
          VideoHub.offer(VideoHub.Packet(if(info.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME!=0) 2 else 1,SystemClock.elapsedRealtimeNanos()/1000,bytes,codecId))
-         lastFrame=SystemClock.elapsedRealtime()
-         if(!ready && captured && info.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME!=0) { ready=true; State.cameraStatus.value="Камера передаёт изображение"; save(); publish() }
+         lastFrame=SystemClock.elapsedRealtime(); encodedFrames++
+         if(info.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME!=0) {
+          if(!proof.keyFrame) State.log(this@CameraService,"Камера · поколение $generation: первый IDR, CaptureResult уже получен=${proof.captured}")
+          proof.key(generation); markReady()
+         }
         }
        } finally { c.releaseOutputBuffer(index,false) }
       }
      }
     }
-    if(SystemClock.elapsedRealtime()-lastFrame>10_000) { failed(IllegalStateException("Нет кадров камеры")); return }
+    if(SystemClock.elapsedRealtime()-lastFrame>10_000 || (!ready && SystemClock.elapsedRealtime()-startupAt>10_000)) { failed(IllegalStateException("Нет подтверждённого потока камеры: ${diagnostic()}")); return }
     handler.postDelayed(this,2)
    } catch(e: Exception) { failed(e) }
   }

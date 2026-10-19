@@ -379,6 +379,8 @@ def camera_smoke(apk):
             received = [0]
             video_config = threading.Event()
             video_key = threading.Event()
+            video_epoch = [0]
+            key_epoch = [0]
             failure = []
             def drain():
                 try:
@@ -386,8 +388,12 @@ def camera_smoke(apk):
                         kind, body = video_packet(video)
                         packets.append((kind, len(body)))
                         if kind in (1, 2): received[0] += 1
-                        if kind == 0: video_config.set()
-                        if kind == 2: video_key.set()
+                        if kind == 0:
+                            video_epoch[0] += 1
+                            video_config.set()
+                        if kind == 2:
+                            key_epoch[0] = video_epoch[0]
+                            video_key.set()
                         del packets[:-300]
                 except Exception as e:
                     if not done.is_set(): failure.append(e)
@@ -396,13 +402,15 @@ def camera_smoke(apk):
             try:
                 def state(predicate=lambda c: c.get('ready'), timeout=25):
                     deadline = time.monotonic()+timeout
+                    last = {}
                     while time.monotonic()<deadline:
                         message = read(control)
                         if message.get('type') == 'telemetry':
                             assert not message['screen'], 'Режим камеры запустил MediaProjection'
                             c = message.get('camera', {})
+                            last = {key: c.get(key) for key in ('generation', 'running', 'ready', 'proof', 'status')}
                             if predicate(c): return c
-                    raise AssertionError('Камера не выдала ожидаемое состояние')
+                    raise AssertionError('Камера не выдала ожидаемое состояние: '+json.dumps(last, ensure_ascii=False)+'; ошибка чтения видео='+','.join(type(e).__name__ for e in failure))
                 c = state(lambda s: s.get('ready') and video_config.is_set() and video_key.is_set())
                 assert c['modes'] and c['cameras'] and video_config.is_set() and video_key.is_set(), 'Нет настоящих конфигурации и ключевого кадра камеры'
                 assert len(json.dumps(c).encode()) < 60000, 'Каталог не помещается в управляющий кадр'
@@ -425,8 +433,14 @@ def camera_smoke(apk):
                 # Invalid input must leave capture alive and must not be persisted.
                 send(control, dict(type='cameraSet', controls={'несуществующий': 1}))
                 state(lambda s: s.get('ready') and s.get('status', '').startswith('Настройка не применена'))
-                send(control, dict(type='cameraSet', reset=True))
-                c = state()
+                for _ in range(3):
+                    generation = c['generation']
+                    previous_video = video_epoch[0]
+                    send(control, dict(type='cameraSet', reset=True))
+                    c = state(lambda s: s.get('ready') and s.get('generation', -1) > generation and
+                              video_epoch[0] > previous_video and key_epoch[0] == video_epoch[0])
+                    assert all(c['proof'][key] for key in ('capture', 'config', 'key')), 'Готовность без полного подтверждения текущей сессии'
+                    print('Пройдено: сброс камеры, поколение', c['generation'], 'новые CaptureResult/CSD/IDR и кадры в реальном видеосокете')
                 print('Пройдено: доступные Camera2-параметры применяются; неверный параметр не ломает поток; сброс работает')
                 old_id = c['cameraId']
                 mode = next((m for m in reversed(c['modes']) if m['id'] != c['mode']), None)

@@ -3,7 +3,7 @@ android {
  namespace = "ru.lenscast"
  compileSdk = 36
  buildToolsVersion = "36.0.0"
- defaultConfig { applicationId = "ru.lenscast"; minSdk = 30; targetSdk = 36; versionCode = 6; versionName = "0.3.0" }
+ defaultConfig { applicationId = "ru.lenscast"; minSdk = 30; targetSdk = 36; versionCode = 7; versionName = "0.3.1" }
  signingConfigs { create("personal") { storeFile = file("../lenscast.keystore"); storePassword = "lenscast-personal"; keyAlias = "lenscast"; keyPassword = "lenscast-personal" } }
  buildTypes { getByName("release") { signingConfig = signingConfigs.getByName("personal"); isMinifyEnabled = false } }
  buildFeatures { compose = true }
