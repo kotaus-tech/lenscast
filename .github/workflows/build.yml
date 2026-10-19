@@ -23,6 +23,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@4c125117fe7c5aed11272ec4213f602f012f89f2 # v5
         with:
           gradle-version: '8.13'
+      - name: Проверка клиента UI автоматизации
+        run: python3 -m unittest discover -s .github/scripts -p 'test_*.py'
       - name: Сборка и проверка APK
         working-directory: android
         run: |

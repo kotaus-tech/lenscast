@@ -61,7 +61,8 @@ def start(apk, mode="Экран"):
     sdk = int(adb('shell', 'getprop', 'ro.build.version.sdk').strip())
     if sdk >= 33:
         adb('shell', 'pm', 'grant', 'ru.lenscast', 'android.permission.POST_NOTIFICATIONS')
-    adb('shell', 'am', 'start', '-W', '-n', 'ru.lenscast/.MainActivity')
+    # NEW_TASK | CLEAR_TASK resets restored Activity scroll/back-stack, not app data.
+    adb('shell', 'am', 'start', '-W', '-f', '0x10008000', '-n', 'ru.lenscast/.MainActivity')
     if mode == 'Веб-камера':
         for _ in range(10):
             card = next((n for n in ui().iter('node') if n.get('text', '').endswith('Веб-камера')), None)
@@ -71,14 +72,12 @@ def start(apk, mode="Экран"):
     for _ in range(6):
         root = ui()
         start = next((n for n in root.iter('node') if n.get('text') == 'Старт'), None)
-        if start is not None:
-            x1, y1, x2, y2 = map(int, re.findall(r'\d+', start.get('bounds', '')))
-            if x2 > x1 and y2 > y1:
-                adb('shell', 'input', 'tap', str((x1+x2)//2), str((y1+y2)//2))
-                break
+        if start is not None and tap_node(start):
+            break
         adb('shell', 'input', 'swipe', '500', '1550', '500', '500', '300')
     else:
-        raise AssertionError('Кнопка «Старт» недоступна')
+        visible = sorted({n.get('text') for n in root.iter('node') if n.get('text') in ('Старт', 'Стоп', 'Настройки', 'На главную', 'Вернуться', 'Запустить камеру', 'Остановить камеру')})
+        raise AssertionError('Кнопка «Старт» недоступна; видимые действия: '+', '.join(visible))
 
     code = None
     deadline = time.monotonic() + 60
@@ -150,8 +149,11 @@ def exercise(apk, remembered=None, tls12=False):
 
 
 def tap_node(node):
-    x1, y1, x2, y2 = map(int, re.findall(r'\d+', node.get('bounds', '')))
-    if x2 <= x1 or y2 <= y1:
+    coords = list(map(int, re.findall(r'-?\d+', node.get('bounds', ''))))
+    if len(coords) != 4 or node.get('enabled', 'true') != 'true':
+        return False
+    x1, y1, x2, y2 = coords
+    if x1 < 0 or y1 < 0 or x2 <= x1 or y2 <= y1:
         return False
     adb('shell', 'input', 'tap', str((x1+x2)//2), str((y1+y2)//2))
     return True

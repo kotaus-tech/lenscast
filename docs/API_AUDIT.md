@@ -300,3 +300,12 @@ Camera2 metadata callback не задаёт порядок относитель�
 что capture callback окажется перед первым encoded IDR. Подтверждения нужно
 запоминать независимо в текущем generation; требование нового CSD/IDR и capture
 после reset сохраняется. Новых системных API для исправления не добавлено.
+
+
+CI restart Activity: Intent.FLAG_ACTIVITY_NEW_TASK=0x10000000 и
+FLAG_ACTIVITY_CLEAR_TASK=0x00008000, `am start -f 0x10008000`.
+Intent.parseCommandArgs поддерживает `-f`; CLEAR_TASK очищает только task/Activity,
+не пакет/SharedPreferences/доверие. Официальный SDK:
+https://github.com/aosp-mirror/platform_frameworks_base/blob/android-16.0.0_r1/core/java/android/content/Intent.java
+Координаты UIAutomator разбираются со знаком: отрицательные/пустые границы и
+выключенные элементы не нажимаются. Синтетические JVM/host-тесты не заменяют AVD.

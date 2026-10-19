@@ -343,7 +343,7 @@ class CameraService: Service() {
   if(current===this) current=null
   State.cameraRunning.value=false
   handler.post {
-   closed=true; generation++; waitingOpen=false
+   closed=true; generation++; proof.reset(generation); waitingOpen=false
    if(owns) {
     ready=false; session?.runCatching { close() }; session=null; device?.close(); device=null; releaseEncoder()
     VideoHub.requestKey=null; VideoHub.stopCapture(); wake?.let { if(it.isHeld) it.release() }; wake=null
