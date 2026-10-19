@@ -309,3 +309,12 @@ Intent.parseCommandArgs поддерживает `-f`; CLEAR_TASK очищает
 https://github.com/aosp-mirror/platform_frameworks_base/blob/android-16.0.0_r1/core/java/android/content/Intent.java
 Координаты UIAutomator разбираются со знаком: отрицательные/пустые границы и
 выключенные элементы не нажимаются. Синтетические JVM/host-тесты не заменяют AVD.
+
+
+Новый UI smoke: координаты берутся из существующего UIAutomator `bounds`,
+со знаком и пересечением видимого окна; геометрия тестируется в portrait/landscape.
+Семантика прямоугольника в координатах экрана сверена с SDK
+AccessibilityNodeInfo.getBoundsInScreen(Rect):
+https://github.com/aosp-mirror/platform_frameworks_base/blob/android-16.0.0_r1/core/java/android/view/accessibility/AccessibilityNodeInfo.java
+Новых Android API/производственных controls не добавлено; команды `input swipe`
+прежние, изменены только координаты и направление поиска UI-теста.

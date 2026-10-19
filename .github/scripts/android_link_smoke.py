@@ -64,20 +64,8 @@ def start(apk, mode="Экран"):
     # NEW_TASK | CLEAR_TASK resets restored Activity scroll/back-stack, not app data.
     adb('shell', 'am', 'start', '-W', '-f', '0x10008000', '-n', 'ru.lenscast/.MainActivity')
     if mode == 'Веб-камера':
-        for _ in range(10):
-            card = next((n for n in ui().iter('node') if n.get('text', '').endswith('Веб-камера')), None)
-            if card is not None and tap_node(card): break
-            adb('shell', 'input', 'swipe', '500', '500', '500', '1550', '300')
-        else: raise AssertionError('Не найдена карточка выбора веб-камеры')
-    for _ in range(6):
-        root = ui()
-        start = next((n for n in root.iter('node') if n.get('text') == 'Старт'), None)
-        if start is not None and tap_node(start):
-            break
-        adb('shell', 'input', 'swipe', '500', '1550', '500', '500', '300')
-    else:
-        visible = sorted({n.get('text') for n in root.iter('node') if n.get('text') in ('Старт', 'Стоп', 'Настройки', 'На главную', 'Вернуться', 'Запустить камеру', 'Остановить камеру')})
-        raise AssertionError('Кнопка «Старт» недоступна; видимые действия: '+', '.join(visible))
+        find_and_tap(lambda n: n.get('text', '').endswith('Веб-камера'), 'Выбор веб-камеры')
+    find_and_tap(lambda n: n.get('text') == 'Старт', 'Старт')
 
     code = None
     deadline = time.monotonic() + 60
@@ -148,15 +136,72 @@ def exercise(apk, remembered=None, tls12=False):
     return fingerprint, token
 
 
-def tap_node(node):
-    coords = list(map(int, re.findall(r'-?\d+', node.get('bounds', ''))))
-    if len(coords) != 4 or node.get('enabled', 'true') != 'true':
+def node_bounds(node):
+    values = list(map(int, re.findall(r'-?\d+', node.get('bounds', ''))))
+    if len(values) != 4:
+        return None
+    x1, y1, x2, y2 = values
+    return tuple(values) if x1 >= 0 and y1 >= 0 and x2 > x1 and y2 > y1 else None
+
+
+def viewport(root):
+    # The first application container is the visible window, not the scroll content.
+    nodes = list(root.iter('node'))
+    for node in nodes:
+        bounds = node_bounds(node)
+        if bounds and node.get('package') == 'ru.lenscast':
+            return bounds
+    for node in nodes:
+        bounds = node_bounds(node)
+        if bounds:
+            return bounds
+    raise AssertionError('UI не содержит границ видимого окна')
+
+
+def tap_node(node, window=None):
+    bounds = node_bounds(node)
+    if bounds is None or node.get('enabled', 'true') != 'true':
         return False
-    x1, y1, x2, y2 = coords
-    if x1 < 0 or y1 < 0 or x2 <= x1 or y2 <= y1:
-        return False
+    x1, y1, x2, y2 = bounds
+    if window is not None:
+        x1, y1 = max(x1, window[0]), max(y1, window[1])
+        x2, y2 = min(x2, window[2]), min(y2, window[3])
+        if x2-x1 < 8 or y2-y1 < 8:
+            return False
     adb('shell', 'input', 'tap', str((x1+x2)//2), str((y1+y2)//2))
     return True
+
+
+def scroll_ui(root, direction):
+    assert direction in ('up', 'down')
+    x1, y1, x2, y2 = viewport(root)
+    x = (x1+x2)//2
+    upper, lower = y1+(y2-y1)*32//100, y1+(y2-y1)*78//100
+    start, end = (lower, upper) if direction == 'down' else (upper, lower)
+    adb('shell', 'input', 'swipe', str(x), str(start), str(x), str(end), '300')
+
+
+def find_and_tap(predicate, label):
+    # Start may be ABOVE the current viewport after selecting a mode/restoring scroll.
+    # Rewind to the known top heading, checking the target on the way, then scan down.
+    root = ui()
+    for direction in ('up', 'down'):
+        for _ in range(16):
+            window = viewport(root)
+            target = next((n for n in root.iter('node') if predicate(n) and
+                           n.get('enabled', 'true') == 'true' and node_bounds(n)), None)
+            if target is not None and tap_node(target, window):
+                return
+            heading = next((n for n in root.iter('node') if n.get('text') == 'Выберите режим'), None)
+            if direction == 'up' and heading is not None and node_bounds(heading):
+                bx1, by1, bx2, by2 = node_bounds(heading)
+                if window[0] <= bx1 < bx2 <= window[2] and window[1] <= by1 < by2 <= window[3]:
+                    break
+            scroll_ui(root, direction)
+            root = ui()
+    safe_labels = ('Старт', 'Стоп', 'Настройки', 'На главную', 'Вернуться', 'Запустить камеру', 'Остановить камеру')
+    visible = [(n.get('text'), node_bounds(n)) for n in root.iter('node') if n.get('text') in safe_labels]
+    raise AssertionError(f'Не найдено действие «{label}»; окно={viewport(root)}, действия={visible}')
 
 
 def video_packet(stream):
@@ -306,7 +351,7 @@ def screen_smoke(apk, fixture):
         node = next((n for n in ui().iter('node') if n.get('text') == 'Разрешить показ экрана' and n.get('enabled') == 'true'), None)
         if node is not None and tap_node(node):
             break
-        adb('shell', 'input', 'swipe', '500', '1550', '500', '500', '300')
+        scroll_ui(ui(), 'down')
     else:
         raise AssertionError('Недоступна кнопка разрешения экрана')
     for _ in range(8):
@@ -363,13 +408,7 @@ def screen_smoke(apk, fixture):
 def camera_smoke(apk):
     start(apk, mode='Веб-камера')
     adb('shell', 'pm', 'grant', 'ru.lenscast', 'android.permission.CAMERA')
-    for _ in range(12):
-        node = next((n for n in ui().iter('node') if n.get('text') == 'Запустить камеру' and n.get('enabled') == 'true'), None)
-        if node is not None and tap_node(node):
-            break
-        adb('shell', 'input', 'swipe', '500', '1550', '500', '500', '300')
-    else:
-        raise AssertionError('Кнопка запуска камеры недоступна')
+    find_and_tap(lambda n: n.get('text') == 'Запустить камеру', 'Запустить камеру')
 
     with ControlSession() as control:
         assert control.ready['mode'] == 'Веб-камера'
@@ -466,11 +505,7 @@ def camera_smoke(apk):
                 adb('shell', 'wm', 'dismiss-keyguard')
                 print('Пройдено: камера продолжает выдавать кадры с выключенным экраном AVD')
                 adb('shell', 'am', 'start', '-W', '-n', 'ru.lenscast/.MainActivity')
-                for _ in range(10):
-                    black = next((n for n in ui().iter('node') if n.get('text') == 'Чёрный экран'), None)
-                    if black is not None and tap_node(black): break
-                    adb('shell', 'input', 'swipe', '500', '1550', '500', '500', '300')
-                else: raise AssertionError('Чёрный fallback недоступен')
+                find_and_tap(lambda n: n.get('text') == 'Чёрный экран', 'Чёрный экран')
                 before_black = received[0]
                 root = ui()
                 back = next((n for n in root.iter('node') if n.get('text') == 'Вернуться'), None)
@@ -493,11 +528,7 @@ def camera_smoke(apk):
     # Recreate service and verify successful settings survive, without remembering a PC.
     time.sleep(1)
     start(apk, mode='Веб-камера')
-    for _ in range(10):
-        node = next((n for n in ui().iter('node') if n.get('text') == 'Запустить камеру'), None)
-        if node is not None and tap_node(node): break
-        adb('shell', 'input', 'swipe', '500', '1550', '500', '500', '300')
-    else: raise AssertionError('Камера не может быть запущена повторно')
+    find_and_tap(lambda n: n.get('text') == 'Запустить камеру', 'Повторный запуск камеры')
     with ControlSession() as control:
         with attach_video(control.ready['videoTicket']) as video:
             wait_key(video)
